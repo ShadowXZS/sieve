@@ -1,5 +1,5 @@
 
-Here is the revised, professionally polished **README.md**. It seamlessly integrates your new perspective—acknowledging services like Dodo Payments, sharing candid reflections on vibe coding and output quality, and reframing the journey into an authentic, developer-first open-source release.
+**Website:** : https://sieveql.vercel.app/
 
 ---
 
