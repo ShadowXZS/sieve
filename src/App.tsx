@@ -14,6 +14,7 @@ import { BidElasticityProbe } from './components/dashboard/BidElasticityProbe.ts
 import { LongTailBleedCard } from './components/analytics/LongTailBleedCard.tsx';
 import { DilutionAuditCard } from './components/analytics/DilutionAuditCard.tsx';
 import { AnalyticalDrawer } from './components/dashboard/AnalyticalDrawer.tsx';
+import { PowerQueryDrawer } from './components/dashboard/PowerQueryDrawer.tsx';
 import { ThresholdControls } from './components/sliders/ThresholdControls.tsx';
 import { KeywordVirtualGrid } from './components/grid/KeywordVirtualGrid.tsx';
 import { WorkerProcessingHUD } from './components/hud/WorkerProcessingHUD.tsx';
@@ -142,6 +143,9 @@ export const App: React.FC = () => {
 
       {/* Analytical Diagnostic Drawer (Phase 11) */}
       <AnalyticalDrawer />
+
+      {/* Power Query Drawer (Phase 13 - DuckDB & Arrow IPC) */}
+      <PowerQueryDrawer workerPool={workerPool || undefined} />
 
       {/* Cryptographic Privacy & Zero-Telemetry Audit Modal */}
       <PrivacyBadgeModal

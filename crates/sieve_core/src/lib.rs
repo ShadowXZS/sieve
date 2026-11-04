@@ -267,6 +267,24 @@ pub extern "C" fn engine_export_query_records(
 
 #[no_mangle]
 #[wasm_bindgen]
+pub extern "C" fn engine_export_columnar_records(
+    ptr: *mut SieveEngine,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.export_columnar_records(out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
 pub extern "C" fn engine_aggregate_fragmented_long_tail(
     ptr: *mut SieveEngine,
     target_cpa: f64,

@@ -114,6 +114,7 @@ export class SieveWorkerPool {
   private taskQueue: QueuedTask[] = [];
   private roundRobinIdx: number = 0;
   private terminated: boolean = false;
+  private lastActiveWorkerId: number = 0;
 
   constructor(options?: WorkerPoolOptions) {
     const defaultConcurrency =
@@ -197,6 +198,7 @@ export class SieveWorkerPool {
     const res = await this.execute(command, workerId);
     if (res.type === 'INGEST_CHUNK_COMPLETE') {
       const completeRes = res as IngestChunkCompleteResponse;
+      this.lastActiveWorkerId = res.workerId ?? workerId ?? 0;
       return {
         statusCode: completeRes.statusCode,
         workerId: res.workerId ?? 0,
@@ -211,6 +213,52 @@ export class SieveWorkerPool {
     } else {
       throw new Error(`Unexpected worker response type: ${res.type}`);
     }
+  }
+
+  public async executeSQL(
+    query: string,
+    workerId?: number
+  ): Promise<{
+    columns: string[];
+    rows: Array<Record<string, any>>;
+    rowCount: number;
+    executionTimeMs: number;
+  }> {
+    const targetWorker = workerId ?? this.lastActiveWorkerId ?? 0;
+    const res = await this.execute(
+      {
+        type: 'EXECUTE_SQL_QUERY',
+        requestId: `sql_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        query,
+      },
+      targetWorker
+    );
+    if (res.type === 'EXECUTE_SQL_QUERY_RESULT') {
+      const sqlRes = res as import('./protocol.ts').ExecuteSqlQueryResponse;
+      return {
+        columns: sqlRes.columns,
+        rows: sqlRes.rows,
+        rowCount: sqlRes.rowCount,
+        executionTimeMs: sqlRes.executionTimeMs,
+      };
+    } else if (res.type === 'WORKER_ERROR') {
+      const err = new Error((res as import('./protocol.ts').WorkerErrorResponse).error);
+      (err as any).code = (res as any).code;
+      (err as any).workerId = res.workerId;
+      throw err;
+    }
+    throw new Error(`Unexpected worker response type for EXECUTE_SQL_QUERY: ${res.type}`);
+  }
+
+  public async unlinkTables(workerId?: number): Promise<void> {
+    const targetWorker = workerId ?? this.lastActiveWorkerId ?? 0;
+    await this.execute(
+      {
+        type: 'UNLINK_TABLES',
+        requestId: `unlink_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      },
+      targetWorker
+    );
   }
 
   public async aggregateFragmentedLongTail(targetCPA?: number): Promise<FragmentedLongTailResult> {

@@ -14,6 +14,7 @@ export interface AppShellProps {
   footer?: React.ReactNode;
   children?: React.ReactNode;
   dashboard?: React.ReactNode;
+  powerQueryDrawer?: React.ReactNode;
   className?: string;
 }
 
@@ -26,6 +27,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   ),
   children,
   dashboard,
+  powerQueryDrawer,
   className = '',
 }) => {
   return (
@@ -47,6 +49,9 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       {/* Bilaterally Aligned Persistent Footer */}
       {footer}
+
+      {/* Power Query Drawer Mount */}
+      {powerQueryDrawer}
     </div>
   );
 };

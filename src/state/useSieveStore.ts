@@ -37,6 +37,14 @@ export interface KPISummary {
   exactLockedCount: number;
 }
 
+export interface SqlQueryResult {
+  columns: string[];
+  rows: Array<Record<string, any>>;
+  rowCount: number;
+  executionTimeMs: number;
+  query: string;
+}
+
 export interface IngestedFileInfo {
   name: string;
   size: number;
@@ -59,6 +67,11 @@ export interface SieveState {
   dilutionResult: MatchTypeDilutionResult | null;
   isAnalyticalDrawerOpen: boolean;
   activeAnalyticalTab: 'long-tail' | 'dilution';
+  isPowerQueryOpen: boolean;
+  powerQuerySql: string;
+  sqlQueryResult: SqlQueryResult | null;
+  isQueryRunning: boolean;
+  sqlQueryError: string | null;
 
   // Actions
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
@@ -73,6 +86,12 @@ export interface SieveState {
   setDilutionResult: (res: MatchTypeDilutionResult | null) => void;
   setAnalyticalDrawerOpen: (isOpen: boolean, tab?: 'long-tail' | 'dilution') => void;
   setActiveAnalyticalTab: (tab: 'long-tail' | 'dilution') => void;
+  setPowerQueryOpen: (isOpen: boolean) => void;
+  setPowerQuerySql: (sql: string) => void;
+  setSqlQueryResult: (result: SqlQueryResult | null) => void;
+  setIsQueryRunning: (isRunning: boolean) => void;
+  setSqlQueryError: (error: string | null) => void;
+  resetPowerQuery: () => void;
   reset: () => void;
 }
 
@@ -193,6 +212,11 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   dilutionResult: null,
   isAnalyticalDrawerOpen: false,
   activeAnalyticalTab: 'long-tail',
+  isPowerQueryOpen: false,
+  powerQuerySql: 'SELECT query, campaign, clicks, cost, conversions FROM search_terms ORDER BY cost DESC LIMIT 20;',
+  sqlQueryResult: null,
+  isQueryRunning: false,
+  sqlQueryError: null,
 
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
     const { thresholds, currency } = get();
@@ -279,6 +303,34 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     set({ activeAnalyticalTab: tab });
   },
 
+  setPowerQueryOpen: (isOpen: boolean) => {
+    set({ isPowerQueryOpen: isOpen });
+  },
+
+  setPowerQuerySql: (sql: string) => {
+    set({ powerQuerySql: sql });
+  },
+
+  setSqlQueryResult: (result: SqlQueryResult | null) => {
+    set({ sqlQueryResult: result, sqlQueryError: null, isQueryRunning: false });
+  },
+
+  setIsQueryRunning: (isRunning: boolean) => {
+    set({ isQueryRunning: isRunning });
+  },
+
+  setSqlQueryError: (error: string | null) => {
+    set({ sqlQueryError: error, isQueryRunning: false });
+  },
+
+  resetPowerQuery: () => {
+    set({
+      sqlQueryResult: null,
+      sqlQueryError: null,
+      isQueryRunning: false,
+    });
+  },
+
   reset: () => {
     set({
       keywords: [],
@@ -296,6 +348,10 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       dilutionResult: null,
       isAnalyticalDrawerOpen: false,
       activeAnalyticalTab: 'long-tail',
+      isPowerQueryOpen: false,
+      sqlQueryResult: null,
+      isQueryRunning: false,
+      sqlQueryError: null,
     });
   },
 }));

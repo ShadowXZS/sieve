@@ -182,7 +182,9 @@ export type WorkerCommandType =
   | 'AGGREGATE_FRAGMENTED_LONG_TAIL'
   | 'DETECT_MATCH_TYPE_DILUTION'
   | 'ADD_EXACT_BENCHMARKS'
-  | 'RESET_ENGINE';
+  | 'RESET_ENGINE'
+  | 'EXECUTE_SQL_QUERY'
+  | 'UNLINK_TABLES';
 
 /**
  * Worker Event Types (Worker -> Main Thread)
@@ -205,6 +207,8 @@ export type WorkerEventType =
   | 'DETECT_MATCH_TYPE_DILUTION_RESULT'
   | 'ADD_EXACT_BENCHMARKS_SUCCESS'
   | 'RESET_ENGINE_SUCCESS'
+  | 'EXECUTE_SQL_QUERY_RESULT'
+  | 'UNLINK_TABLES_SUCCESS'
   | 'WORKER_ERROR';
 
 // -----------------------------------------------------------------------------
@@ -315,6 +319,17 @@ export interface ResetEngineCommand {
   requestId: string;
 }
 
+export interface ExecuteSqlQueryCommand {
+  type: 'EXECUTE_SQL_QUERY';
+  requestId: string;
+  query: string;
+}
+
+export interface UnlinkTablesCommand {
+  type: 'UNLINK_TABLES';
+  requestId: string;
+}
+
 export type WorkerCommand =
   | InitWasmCommand
   | IngestCsvChunkCommand
@@ -331,7 +346,9 @@ export type WorkerCommand =
   | AggregateFragmentedLongTailCommand
   | DetectMatchTypeDilutionCommand
   | AddExactBenchmarksCommand
-  | ResetEngineCommand;
+  | ResetEngineCommand
+  | ExecuteSqlQueryCommand
+  | UnlinkTablesCommand;
 
 // -----------------------------------------------------------------------------
 // Message Responses (Worker -> Main)
@@ -432,6 +449,18 @@ export interface ResetEngineSuccessResponse extends BaseWorkerResponse {
   type: 'RESET_ENGINE_SUCCESS';
 }
 
+export interface ExecuteSqlQueryResponse extends BaseWorkerResponse {
+  type: 'EXECUTE_SQL_QUERY_RESULT';
+  columns: string[];
+  rows: Array<Record<string, any>>;
+  rowCount: number;
+  executionTimeMs: number;
+}
+
+export interface UnlinkTablesResponse extends BaseWorkerResponse {
+  type: 'UNLINK_TABLES_SUCCESS';
+}
+
 export interface WorkerErrorResponse extends BaseWorkerResponse {
   type: 'WORKER_ERROR';
   error: string;
@@ -457,6 +486,8 @@ export type WorkerResponse =
   | DetectMatchTypeDilutionResponse
   | AddExactBenchmarksSuccessResponse
   | ResetEngineSuccessResponse
+  | ExecuteSqlQueryResponse
+  | UnlinkTablesResponse
   | WorkerErrorResponse;
 
 // -----------------------------------------------------------------------------

@@ -807,6 +807,184 @@ impl SieveEngine {
         cursor.pos
     }
 
+    /// Exports search term records in high-performance Arrow-compatible columnar layout.
+    /// Returns number of bytes written to `output`.
+    pub fn export_columnar_records(&self, output: &mut [u8]) -> usize {
+        let n = self.query_auction_map.len();
+        if n == 0 {
+            return 0;
+        }
+
+        // Pass 1: compute string sizes
+        let mut query_bytes_len = 0usize;
+        let mut campaign_bytes_len = 0usize;
+        let mut adgroup_bytes_len = 0usize;
+
+        for (query, records) in &self.query_auction_map {
+            query_bytes_len += query.len();
+            let mut first_campaign: &[u8] = &[];
+            let mut first_adgroup: &[u8] = &[];
+            for r in records {
+                if first_campaign.is_empty() && !r.campaign.is_empty() {
+                    first_campaign = &r.campaign;
+                }
+                if first_adgroup.is_empty() && !r.adgroup.is_empty() {
+                    first_adgroup = &r.adgroup;
+                }
+            }
+            campaign_bytes_len += first_campaign.len();
+            adgroup_bytes_len += first_adgroup.len();
+        }
+
+        fn align8(pos: usize) -> usize {
+            (pos + 7) & !7
+        }
+
+        let header_len = 80usize; // 20 * 4 bytes
+        let query_offsets_pos = align8(header_len);
+        let query_offsets_len = (n + 1) * 4;
+
+        let query_data_pos = align8(query_offsets_pos + query_offsets_len);
+        let query_data_len = query_bytes_len;
+
+        let campaign_offsets_pos = align8(query_data_pos + query_data_len);
+        let campaign_offsets_len = (n + 1) * 4;
+
+        let campaign_data_pos = align8(campaign_offsets_pos + campaign_offsets_len);
+        let campaign_data_len = campaign_bytes_len;
+
+        let adgroup_offsets_pos = align8(campaign_data_pos + campaign_data_len);
+        let adgroup_offsets_len = (n + 1) * 4;
+
+        let adgroup_data_pos = align8(adgroup_offsets_pos + adgroup_offsets_len);
+        let adgroup_data_len = adgroup_bytes_len;
+
+        let clicks_pos = align8(adgroup_data_pos + adgroup_data_len);
+        let clicks_len = n * 8;
+
+        let cost_pos = align8(clicks_pos + clicks_len);
+        let cost_len = n * 8;
+
+        let conversions_pos = align8(cost_pos + cost_len);
+        let conversions_len = n * 8;
+
+        let has_collision_pos = align8(conversions_pos + conversions_len);
+        let has_collision_len = n;
+
+        let total_size = align8(has_collision_pos + has_collision_len);
+
+        if output.len() < total_size {
+            return 0;
+        }
+
+        // Write header
+        let header_u32 = [
+            0x53494556u32, // 'SIEV'
+            1u32,          // version
+            n as u32,
+            query_offsets_pos as u32,
+            query_offsets_len as u32,
+            query_data_pos as u32,
+            query_data_len as u32,
+            campaign_offsets_pos as u32,
+            campaign_offsets_len as u32,
+            campaign_data_pos as u32,
+            campaign_data_len as u32,
+            adgroup_offsets_pos as u32,
+            adgroup_offsets_len as u32,
+            adgroup_data_pos as u32,
+            adgroup_data_len as u32,
+            clicks_pos as u32,
+            cost_pos as u32,
+            conversions_pos as u32,
+            has_collision_pos as u32,
+            total_size as u32,
+        ];
+
+        for (i, &val) in header_u32.iter().enumerate() {
+            output[i * 4..(i + 1) * 4].copy_from_slice(&val.to_le_bytes());
+        }
+
+        // Pass 2: populate buffers
+        let mut cur_query_offset = 0i32;
+        let mut cur_campaign_offset = 0i32;
+        let mut cur_adgroup_offset = 0i32;
+
+        let mut q_data_cursor = query_data_pos;
+        let mut c_data_cursor = campaign_data_pos;
+        let mut a_data_cursor = adgroup_data_pos;
+
+        for (row_idx, (query, records)) in self.query_auction_map.iter().enumerate() {
+            // Write offsets
+            output[query_offsets_pos + row_idx * 4..query_offsets_pos + (row_idx + 1) * 4]
+                .copy_from_slice(&cur_query_offset.to_le_bytes());
+            output[campaign_offsets_pos + row_idx * 4..campaign_offsets_pos + (row_idx + 1) * 4]
+                .copy_from_slice(&cur_campaign_offset.to_le_bytes());
+            output[adgroup_offsets_pos + row_idx * 4..adgroup_offsets_pos + (row_idx + 1) * 4]
+                .copy_from_slice(&cur_adgroup_offset.to_le_bytes());
+
+            // Write query string
+            output[q_data_cursor..q_data_cursor + query.len()].copy_from_slice(query);
+            q_data_cursor += query.len();
+            cur_query_offset += query.len() as i32;
+
+            // Compute aggregates
+            let mut total_clicks = 0u64;
+            let mut total_cost = 0.0f64;
+            let mut total_conversions = 0.0f64;
+            let mut first_campaign: &[u8] = &[];
+            let mut first_adgroup: &[u8] = &[];
+            let mut unique_campaigns: Vec<&[u8]> = Vec::new();
+
+            for r in records {
+                total_clicks += r.clicks;
+                total_cost += r.cost;
+                total_conversions += r.conversions;
+                if first_campaign.is_empty() && !r.campaign.is_empty() {
+                    first_campaign = &r.campaign;
+                }
+                if first_adgroup.is_empty() && !r.adgroup.is_empty() {
+                    first_adgroup = &r.adgroup;
+                }
+                if !unique_campaigns.contains(&r.campaign.as_ref()) {
+                    unique_campaigns.push(&r.campaign);
+                }
+            }
+
+            // Write campaign string
+            output[c_data_cursor..c_data_cursor + first_campaign.len()].copy_from_slice(first_campaign);
+            c_data_cursor += first_campaign.len();
+            cur_campaign_offset += first_campaign.len() as i32;
+
+            // Write adgroup string
+            output[a_data_cursor..a_data_cursor + first_adgroup.len()].copy_from_slice(first_adgroup);
+            a_data_cursor += first_adgroup.len();
+            cur_adgroup_offset += first_adgroup.len() as i32;
+
+            // Write metrics
+            let clicks_f64 = total_clicks as f64;
+            output[clicks_pos + row_idx * 8..clicks_pos + (row_idx + 1) * 8]
+                .copy_from_slice(&clicks_f64.to_le_bytes());
+            output[cost_pos + row_idx * 8..cost_pos + (row_idx + 1) * 8]
+                .copy_from_slice(&total_cost.to_le_bytes());
+            output[conversions_pos + row_idx * 8..conversions_pos + (row_idx + 1) * 8]
+                .copy_from_slice(&total_conversions.to_le_bytes());
+
+            let has_collision = if unique_campaigns.len() > 1 { 1u8 } else { 0u8 };
+            output[has_collision_pos + row_idx] = has_collision;
+        }
+
+        // Final offsets
+        output[query_offsets_pos + n * 4..query_offsets_pos + (n + 1) * 4]
+            .copy_from_slice(&cur_query_offset.to_le_bytes());
+        output[campaign_offsets_pos + n * 4..campaign_offsets_pos + (n + 1) * 4]
+            .copy_from_slice(&cur_campaign_offset.to_le_bytes());
+        output[adgroup_offsets_pos + n * 4..adgroup_offsets_pos + (n + 1) * 4]
+            .copy_from_slice(&cur_adgroup_offset.to_le_bytes());
+
+        total_size
+    }
+
     /// Explicitly registers or overrides an exact match keyword benchmark CPC.
     pub fn add_exact_benchmark(&mut self, query: &[u8], benchmark_cpc: f64) {
         let clean = strip_match_syntax(query);
@@ -1300,5 +1478,32 @@ mod tests {
         assert!(json.contains(r#""broad_cpc":2.50"#));
         assert!(json.contains(r#""exact_cpc":1.20"#));
         assert!(json.contains(r#""cpc_inflation_ratio":2.08"#));
+    }
+
+    #[test]
+    fn test_export_columnar_records() {
+        let mut engine = SieveEngine::new();
+        let csv = [
+            "Search term,Campaign,Ad group,Clicks,Cost,Conversions",
+            "cheap running shoes,US_Search,Shoes_AG,15,45.50,2",
+            "luxury boots,UK_Search,Boots_AG,5,25.00,0",
+        ]
+        .join("\n");
+
+        let status = engine.ingest_chunk(csv.as_bytes(), true);
+        assert_eq!(status, 0);
+
+        let mut out = [0u8; 8192];
+        let bytes_written = engine.export_columnar_records(&mut out);
+        assert!(bytes_written > 80);
+
+        // Check magic and version
+        let magic = u32::from_le_bytes(out[0..4].try_into().unwrap());
+        let version = u32::from_le_bytes(out[4..8].try_into().unwrap());
+        let row_count = u32::from_le_bytes(out[8..12].try_into().unwrap());
+
+        assert_eq!(magic, 0x53494556);
+        assert_eq!(version, 1);
+        assert_eq!(row_count, 2);
     }
 }

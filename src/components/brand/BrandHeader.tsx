@@ -9,19 +9,24 @@
 import React from 'react';
 import { SieveLogo } from './SieveLogo.tsx';
 import { CurrencySelector } from './CurrencySelector.tsx';
-import { Cpu, Database, ShieldCheck } from 'lucide-react';
+import { Cpu, Database, ShieldCheck, Terminal } from 'lucide-react';
+import { useSieveStore } from '../../state/useSieveStore.ts';
 
 export interface BrandHeaderProps {
   workerConcurrency?: number;
   onOpenPrivacyModal?: () => void;
+  onOpenPowerQuery?: () => void;
   className?: string;
 }
 
 export const BrandHeader: React.FC<BrandHeaderProps> = ({
   workerConcurrency = 4,
   onOpenPrivacyModal,
+  onOpenPowerQuery,
   className = '',
 }) => {
+  const setPowerQueryOpen = useSieveStore((s) => s.setPowerQueryOpen);
+  const handlePowerQueryClick = onOpenPowerQuery || (() => setPowerQueryOpen(true));
 
   return (
     <header
@@ -63,6 +68,19 @@ export const BrandHeader: React.FC<BrandHeaderProps> = ({
           <Database className="w-3.5 h-3.5 text-emerald-400" />
           <span>Dexie Tier</span>
         </div>
+
+        {/* DuckDB Power Query Trigger */}
+        <button
+          type="button"
+          data-testid="header-power-query-btn"
+          onClick={handlePowerQueryClick}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-950/80 hover:bg-zinc-850 text-zinc-300 hover:text-emerald-300 border border-zinc-800 hover:border-zinc-700 transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 shadow-sm"
+          title="Open DuckDB Power Query Drawer"
+        >
+          <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">Power Query</span>
+          <span className="px-1 py-0.2 rounded text-[10px] font-mono bg-zinc-800 text-emerald-400 border border-zinc-700">SQL</span>
+        </button>
 
         {onOpenPrivacyModal && (
           <button
