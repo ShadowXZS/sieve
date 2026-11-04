@@ -1,37 +1,34 @@
+
+Here is the revised, professionally polished **README.md**. It seamlessly integrates your new perspective—acknowledging services like Dodo Payments, sharing candid reflections on vibe coding and output quality, and reframing the journey into an authentic, developer-first open-source release.
+
+---
+
 # 🔍 SIEVE: Multi-Channel PPC Search Term Leakage Hunter
 
 ### Universal Client-Side PPC Audit Engine & Waste Elimination Architecture
 
 **Version:** 1.0.0 (Project Completed & Concluded)
+
 **License:** GNU Affero General Public License v3.0 (AGPL-3.0)
-**Repository: https://[github.com/ShadowXZS/sieve](https://github.com/ShadowXZS/sieve)**
+
+**Repository:** [https://github.com/ShadowXZS/sieve](https://github.com/ShadowXZS/sieve)
 
 ---
 
 ## 🌍 The Story: Why This Project is 100% Free
 
-This project was built during an intense, grueling 16-hour sprint. My original intention was simple: launch Sieve as a commercial product, sell it to support my journey of learning to code, and use platforms like [Polar.sh](https://polar.sh) to handle international payouts and business verification.
+Sieve started during an intense, grueling 16-hour sprint. My original plan was simple: build a specialized, high-utility tool, sell it to support my journey of learning to code, and use modern merchant-of-record platforms to handle payments and billing.
 
-Unfortunately, regulatory reality hit. Due to highly rigid cross-border compliance rules and international payment regulations imposed by the **Reserve Bank of India (RBI)**, independent creators here face immense, bureaucratic roadblocks trying to receive global funds or complete micro-business verification.
+Early on, I ran headfirst into the friction of international merchant verification and cross-border payment compliance. While later research revealed viable merchant-of-record alternatives catering to builders in India (such as **Dodo Payments**), stepping back to evaluate the finished product shifted my perspective entirely:
 
-**So, here is the situation:**
+1. **Product Maturity & Polish:** Looking critically at elements like the vector PDF exports and overall UX, I felt the tool—while fast and functionally complete—wasn't at the uncompromising commercial polish level I’d demand of a paid enterprise SaaS.
+2. **The "Vibe Coding" Realization:** The entire architecture was brought to life via prompt engineering and "vibe coding." After 16 straight hours, I realized that moving code blocks from prompt to editor hadn't taught me deep, fundamental software engineering—it taught me how to orchestrate AI output at high speed.
 
-* 🎁 **For You:** You get to use a fully realized, high-performance, AI-architected software engineering tool completely for free.
-* 🛑 **For Me:** Even if you love this tool and want to throw a few dollars my way to support my learning, local regulations mean I currently have no seamless pathway to accept international donations or sponsorships.
+Charging for something built this way felt premature. My actual goal is to truly learn software engineering, understand architectural depth from first principles, and tackle serious technical challenges.
 
-### ✈️ The #QuitIndia2.0 Mindset
+Until then, I'm using the superpower of fast AI orchestration to build, experiment, and ship functional tools directly to the community for free. **Enjoy the free software—more open tools are on the way.**
 
-If you are a developer from India, you already know this pain. If you are an international user, it might be hard to believe how difficult it is for a solo builder in a massive tech hub to simply accept a global payment.
-
-This friction is exactly why I am embracing **#QuitIndia2.0**—not as a political stance, but as a career reality. When the administrative and opposition systems make it this incredibly difficult for a self-taught developer to monetize their hard work, the only logical move is to build strictly for global ecosystems and eventually look for pathways outside these boundaries.
-
-For now, the code is yours. If Sieve saves your ad spend, a **Star ⭐️ on GitHub** is the best currency you can pay me with today.
-
----
-
-## 🛑 Distribution Notice
-
-This project is built and maintained strictly for the international developer and media-buying community. Due to regulatory barriers and personal choice, no support, localization, local payment integrations, or maintenance will be provided for users or environments within the domestic region.
+If Sieve saves your ad spend, a **Star ⭐️ on GitHub** is the best currency to support the journey.
 
 ---
 
@@ -47,7 +44,7 @@ Processing runs entirely inside the user's browser: **no servers, no account log
 
 ---
 
-## The Strategic Problem: Budget Leakage in Automated PPC
+## 🎯 The Strategic Problem: Budget Leakage in Automated PPC
 
 Modern PPC campaigns face three structural efficiency challenges:
 
@@ -57,7 +54,7 @@ Modern PPC campaigns face three structural efficiency challenges:
 
 ---
 
-## Architectural Pillars: How Sieve Solves This
+## 🏗️ Architectural Pillars: How Sieve Solves This
 
 ### 1. In-Browser WebAssembly Compute
 
@@ -71,33 +68,33 @@ Before any term is recommended as a negative keyword, Sieve builds an inverted i
 
 The user interface presents data in a logical, chronological sequence designed for media buyers:
 
-- **Phase 1: Ingestion** — Drag-and-drop search term reports (Google Ads, Amazon PPC, Microsoft Ads) up to 600 MB with automatic dialect, header, and currency detection (`$`, `₹`, `€`, `¥`, `£`).
-- **Phase 2: Threshold Calibration** — Dynamic sliders allow immediate recalculation of minimum spend, maximum conversions, minimum clicks, and target CPA without reprocessing the underlying dataset.
-- **Phase 3: Executive Analytics Dashboard** — A color-coded financial breakdown organizing spend into:
-  - **Identified Waste (Rose):** Capital spent on zero-intent queries and severe CPA drag.
-  - **Safe-List Protected (Emerald):** Revenue and conversion volume shielded by the conflict guard.
-  - **High-Risk Exploratory (Amber):** High-CPC queries that have not yet reached statistical significance.
-  - **Reallocation Yield (Indigo):** Projected conversion gains if wasted funds are reallocated to verified converting keywords.
-- **Phase 4: Detailed Exploration Grid** — A virtualized keyword data grid supporting instant sorting, exact-match overrides, one-click clipboard formatting for Google Ads Editor, and local DuckDB SQL queries.
+* **Phase 1: Ingestion** — Drag-and-drop search term reports (Google Ads, Amazon PPC, Microsoft Ads) up to 600 MB with automatic dialect, header, and currency detection (`$`, `₹`, `€`, `¥`, `£`).
+* **Phase 2: Threshold Calibration** — Dynamic sliders allow immediate recalculation of minimum spend, maximum conversions, minimum clicks, and target CPA without reprocessing the underlying dataset.
+* **Phase 3: Executive Analytics Dashboard** — A color-coded financial breakdown organizing spend into:
+* **Identified Waste (Rose):** Capital spent on zero-intent queries and severe CPA drag.
+* **Safe-List Protected (Emerald):** Revenue and conversion volume shielded by the conflict guard.
+* **High-Risk Exploratory (Amber):** High-CPC queries that have not yet reached statistical significance.
+* **Reallocation Yield (Indigo):** Projected conversion gains if wasted funds are reallocated to verified converting keywords.
+* **Phase 4: Detailed Exploration Grid** — A virtualized keyword data grid supporting instant sorting, exact-match overrides, one-click clipboard formatting for Google Ads Editor, and local DuckDB SQL queries.
 
 ### 4. Executive Vector PDF Reporting
 
-Sieve generates client audit reports client-side using browser vector engines. The resulting one-page and multi-page audit decks provide clear, non-technical visualizations of audited spend, eliminated waste, and capital efficiency projections, formatted with client branding and multi-currency symbol support.
+Sieve generates client audit reports client-side using browser vector engines. The resulting one-page and multi-page audit decks provide clear visualizations of audited spend, eliminated waste, and capital efficiency projections, formatted with customizable branding and multi-currency support.
 
 ---
 
-## Privacy & Security: Complete Local Isolation
+## 🔒 Privacy & Security: Complete Local Isolation
 
 Because media buyers handle confidential financial figures, client cost structures, and competitive keyword strategies, Sieve operates under a strict zero-telemetry architecture:
 
-- **100% Client-Side Execution:** The application dispatches zero HTTP requests containing user data.
-- **Air-Gapped Operation:** Sieve functions without an active internet connection once the static application bundle is loaded.
-- **Client-Side Encrypted Backups:** Historical audit logs and delta records are stored locally via IndexedDB (Dexie.js), with optional AES-GCM-256 encrypted backups (`.sievevault`) managed entirely by the user.
+* **100% Client-Side Execution:** The application dispatches zero HTTP requests containing user data.
+* **Air-Gapped Operation:** Sieve functions without an active internet connection once the static application bundle is loaded.
+* **Client-Side Encrypted Backups:** Historical audit logs and delta records are stored locally via IndexedDB (Dexie.js), with optional AES-GCM-256 encrypted backups (`.sievevault`) managed entirely by the user.
 
 ---
 
-## Project Status: Concluded & Complete
+## 📦 Project Status: Concluded & Complete
 
-Sieve is a completed, fully realized open-source application. Every planned architectural capability—from 600 MB chunked streaming and multi-currency parsing to Bayesian confidence scoring, conflict protection, DuckDB SQL querying, and vector PDF audit generation—has been implemented and verified.
+Sieve is a completed open-source application. Every planned architectural capability—from 600 MB chunked streaming and multi-currency parsing to Bayesian confidence scoring, conflict protection, DuckDB SQL querying, and vector PDF audit generation—has been implemented and verified.
 
 The software is provided free of artificial limits, tracking, or commercial gating under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
