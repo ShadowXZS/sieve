@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { calculateReallocationModel, formatCurrency } from '../../reports/reallocation.ts';
+import { computeExecutiveAnalytics } from '../../utils/executiveAnalytics.ts';
 import { AuditOnePager } from '../../reports/pdf/AuditOnePager.tsx';
 import { ForensicDeck } from '../../reports/pdf/ForensicDeck.tsx';
 import { generatePdfBlob, downloadPdfBlob } from '../../reports/pdf/renderer.ts';
@@ -43,7 +44,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { filteredKeywords, kpi, thresholds, currency } = useSieveStore();
+  const { filteredKeywords, kpi, thresholds, currency, longTailResult, dilutionResult } = useSieveStore();
 
   const [reportType, setReportType] = useState<ReportType>('one_pager');
   const [organizationTitle, setOrganizationTitle] = useState('Acme Corp PPC Audit');
@@ -90,6 +91,11 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
     });
   }, [kpi.totalWaste, marginalCPA]);
 
+  // Synchronized live executive analytics
+  const analytics = useMemo(() => {
+    return computeExecutiveAnalytics(filteredKeywords, thresholds, kpi, currency);
+  }, [filteredKeywords, thresholds, kpi, currency]);
+
   // Generate & Download PDF
   const handleGenerate = async () => {
     try {
@@ -115,6 +121,8 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           reallocation,
           topKeywords,
           reportDate,
+          analytics,
+          thresholds,
         });
         filename = `${organizationTitle.toLowerCase().replace(/\s+/g, '-')}-executive-audit.pdf`;
       } else {
@@ -127,6 +135,10 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           reallocation,
           keywords: topKeywords,
           reportDate,
+          analytics,
+          thresholds,
+          longTailResult,
+          dilutionResult,
         });
         filename = `${organizationTitle.toLowerCase().replace(/\s+/g, '-')}-forensic-deck.pdf`;
       }

@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { pdf, type DocumentProps } from '@react-pdf/renderer';
+import { registerPdfFonts } from './fonts/index.ts';
 
 /**
  * Compiles a React PDF document element tree into an in-memory PDF Blob.
@@ -14,6 +15,7 @@ import { pdf, type DocumentProps } from '@react-pdf/renderer';
 export async function generatePdfBlob(
   document: React.ReactElement<DocumentProps> | React.ReactElement<any>
 ): Promise<Blob> {
+  registerPdfFonts();
   const instance = pdf(document as React.ReactElement<DocumentProps>);
   const blob = await instance.toBlob();
   return blob;

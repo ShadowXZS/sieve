@@ -1,16 +1,24 @@
 /**
- * Multi-Page Forensic Account Audit Deck PDF (Phase 6)
+ * Multi-Page Forensic Account Audit Deck PDF (Phase 12 - High-Fidelity Vector PDF Sync)
  *
  * Compiles a vector-rendered, multi-page comprehensive account forensic audit
  * directly inside browser memory using @react-pdf/renderer.
  *
  * Diagnostics Chapters:
- * 1. Executive Summary & Capital Recovery Matrix
- * 2. Capital Reallocation Modeling & Sensitivity Projection
- * 3. Search Term Forensic Targets & Cost Dispersion
+ * 1. Executive Summary & Live Executive Dashboard Diagnostic Matrix
+ * 2. Capital Reallocation Modeling & Spend Waterfall Sensitivity
+ * 3. Search Term Forensic Targets, Bid Elasticity & Dilution Diagnostics
  * 4. Conflict Guard, Safe-List Integrity & Execution Protocol
  *
- * 100% Zero-Server, fully offline font metrics (Helvetica standard 14).
+ * Features:
+ * - 100% Client-Side Vector Synthesis with Zero Network Calls.
+ * - Live synchronization with Executive Dashboard 4-tier semantic sections:
+ *   1. Identified Waste Bleed (Rose)
+ *   2. Safe-List Protected (Emerald)
+ *   3. High-Risk Clicks (Amber)
+ *   4. Reallocation Yield (Indigo)
+ * - Complete UTF-8 glyph embedding for multi-currency symbols: $, ₹, €, ¥, £.
+ * - Embedded Bid Elasticity Probe & Match-Type Dilution diagnostics.
  */
 
 import React from 'react';
@@ -19,11 +27,26 @@ import {
   Page,
   Text,
   View,
-  StyleSheet,
 } from '@react-pdf/renderer';
-import type { KPISummary } from '../../state/useSieveStore.ts';
-import { type ReallocationModel, formatCurrency } from '../reallocation.ts';
-import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
+import type { KPISummary, SieveThresholds } from '../../state/useSieveStore.ts';
+import type { ReallocationModel } from '../reallocation.ts';
+import type {
+  PersistedNegativeKeyword,
+  FragmentedLongTailResult,
+  MatchTypeDilutionResult,
+} from '../../workers/protocol.ts';
+import { formatCurrency, normalizeCurrencySymbol, type SupportedCurrency } from '../../utils/currency.ts';
+import {
+  computeExecutiveAnalytics,
+  computeFragmentedLongTail,
+  computeMatchTypeDilution,
+  type ExecutiveAnalytics,
+} from '../../utils/executiveAnalytics.ts';
+import { registerPdfFonts } from './fonts/index.ts';
+import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from './styles.ts';
+
+// Ensure offline UTF-8 TrueType fonts are registered
+registerPdfFonts();
 
 export interface ForensicDeckProps {
   organizationTitle?: string;
@@ -34,170 +57,11 @@ export interface ForensicDeckProps {
   reallocation: ReallocationModel;
   keywords?: PersistedNegativeKeyword[];
   reportDate?: string;
+  analytics?: ExecutiveAnalytics;
+  thresholds?: SieveThresholds;
+  longTailResult?: FragmentedLongTailResult;
+  dilutionResult?: MatchTypeDilutionResult;
 }
-
-const styles = StyleSheet.create({
-  page: {
-    fontFamily: 'Helvetica',
-    fontSize: 9,
-    paddingTop: 36,
-    paddingBottom: 40,
-    paddingHorizontal: 40,
-    color: '#27272a',
-    backgroundColor: '#ffffff',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1.5,
-    borderBottomColor: '#e4e4e7',
-    paddingBottom: 12,
-    marginBottom: 20,
-  },
-  headerTitle: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 16,
-    color: '#09090b',
-  },
-  headerCategory: {
-    fontSize: 8,
-    color: '#71717a',
-    fontFamily: 'Helvetica-Bold',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  pageNumber: {
-    fontSize: 8,
-    color: '#94a3b8',
-    fontFamily: 'Helvetica-Bold',
-  },
-  chapterBanner: {
-    padding: 12,
-    borderRadius: 6,
-    marginBottom: 16,
-    backgroundColor: '#f8fafc',
-    borderLeftWidth: 4,
-  },
-  chapterTitle: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 13,
-    color: '#09090b',
-    marginBottom: 3,
-  },
-  chapterSubtitle: {
-    fontSize: 8.5,
-    color: '#475569',
-    lineHeight: 1.3,
-  },
-  gridCards: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    gap: 8,
-  },
-  card: {
-    flex: 1,
-    padding: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  cardLabel: {
-    fontSize: 7.5,
-    color: '#64748b',
-    fontFamily: 'Helvetica-Bold',
-    textTransform: 'uppercase',
-  },
-  cardValue: {
-    fontSize: 16,
-    fontFamily: 'Helvetica-Bold',
-    color: '#0f172a',
-    marginTop: 4,
-  },
-  cardSub: {
-    fontSize: 7.5,
-    marginTop: 2,
-    fontFamily: 'Helvetica-Bold',
-  },
-  section: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 11,
-    color: '#09090b',
-    marginBottom: 8,
-  },
-  table: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  tableHeaderCell: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 7.5,
-    color: '#475569',
-    textTransform: 'uppercase',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  tableCell: {
-    fontSize: 8,
-    color: '#334155',
-  },
-  tableCellBold: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: '#0f172a',
-  },
-  calloutBox: {
-    padding: 10,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    marginBottom: 14,
-  },
-  calloutText: {
-    fontSize: 8,
-    color: '#334155',
-    lineHeight: 1.4,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 24,
-    left: 40,
-    right: 40,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#e4e4e7',
-    paddingTop: 8,
-  },
-  footerText: {
-    fontSize: 7,
-    color: '#94a3b8',
-  },
-});
 
 export const ForensicDeck: React.FC<ForensicDeckProps> = ({
   organizationTitle = 'Forensic Account Audit Deck',
@@ -208,59 +72,188 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
   reallocation,
   keywords = [],
   reportDate = new Date().toISOString().split('T')[0],
+  analytics,
+  thresholds,
+  longTailResult,
+  dilutionResult,
 }) => {
-  const formattedWaste = formatCurrency(kpi.totalWaste || 0, currencySymbol);
+  const activeCurrency: SupportedCurrency = normalizeCurrencySymbol(currencySymbol);
 
-  const top10Keywords = keywords.slice(0, 10);
-  const collisions = keywords.filter((k) => k.hasCollision).slice(0, 5);
+  // Compute or reuse executive analytics (pure functional, zero React hook overhead)
+  const execAnalytics =
+    analytics ??
+    computeExecutiveAnalytics(
+      keywords,
+      thresholds || {
+        targetCPA: reallocation.marginalCPA || 50,
+        minClicks: 10,
+        minSpend: 50,
+        minConfidence: 0.9,
+      },
+      kpi,
+      activeCurrency
+    );
+
+  const waste = execAnalytics.wasteBleed.amount;
+  const spend = execAnalytics.spendWaterfall.totalSpend;
+  const wastePercentage =
+    spend <= 0 || !Number.isFinite(spend)
+      ? 0.0
+      : Math.min(100.0, Math.max(0.0, Math.round((waste / spend) * 1000) / 10));
+
+  // Compute or reuse Phase 11 diagnostic results
+  const longTail =
+    longTailResult ??
+    computeFragmentedLongTail(keywords, thresholds?.targetCPA || 50, activeCurrency);
+
+  const dilution =
+    dilutionResult ??
+    computeMatchTypeDilution(keywords, activeCurrency);
+
+  const topKeywords = keywords.slice(0, 8);
+  const collisions = keywords.filter((k) => k.hasCollision).slice(0, 6);
 
   return (
     <Document title={`${organizationTitle} - Forensic Deck`} author="Sieve Zero-Server Core">
-      {/* Page 1: Executive Summary */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
+      {/* Page 1: Executive Summary & Live Executive Dashboard Diagnostic */}
+      <Page size="A4" style={styles.deckPage}>
+        <View style={styles.headerDeck}>
           <View>
             <Text style={styles.headerCategory}>Forensic Diagnostic Series • Chapter 1</Text>
-            <Text style={styles.headerTitle}>{organizationTitle}</Text>
+            <Text style={styles.headerTitleDeck}>{organizationTitle}</Text>
           </View>
           <Text style={styles.pageNumber}>Page 1 / 4</Text>
         </View>
 
         <View style={[styles.chapterBanner, { borderLeftColor: accentColor }]}>
-          <Text style={styles.chapterTitle}>Executive Summary & Capital Recovery</Text>
+          <Text style={styles.chapterTitle}>Executive Summary & Capital Recovery Matrix</Text>
           <Text style={styles.chapterSubtitle}>
             High-precision algorithmic negative keyword synthesis identifying non-converting search queries,
-            preventing margin drag, and establishing baseline reallocation opportunities.
+            preventing margin drag, and synchronizing with live Executive Dashboard performance tiers.
           </Text>
         </View>
 
-        {/* Hero KPI Cards */}
+        {/* Live Executive Dashboard Sync: 4 Color-Coded Semantic Sections */}
         <View style={styles.gridCards}>
-          <View style={[styles.card, { borderTopWidth: 2, borderTopColor: accentColor }]}>
-            <Text style={styles.cardLabel}>Recoverable Waste</Text>
-            <Text style={[styles.cardValue, { color: accentColor }]}>{formattedWaste}</Text>
-            <Text style={[styles.cardSub, { color: '#64748b' }]}>
-              {kpi.totalKeywords.toLocaleString()} Exclusion Rules
+          {/* Tier 1: Rose/Red - Identified Waste Bleed */}
+          <View
+            style={[
+              styles.card,
+              {
+                borderTopWidth: 2.5,
+                borderTopColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.border,
+                backgroundColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.bg,
+              },
+            ]}
+          >
+            <View style={styles.cardHeaderRow}>
+              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }]}>
+                Identified Waste
+              </Text>
+              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.badgeBg }]}>
+                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }}>
+                  {wastePercentage.toFixed(1)}%
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.dark }]}>
+              {execAnalytics.wasteBleed.formatted}
+            </Text>
+            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.primary }]}>
+              CPA Drag: +{execAnalytics.wasteBleed.formattedCpaDrag}
+            </Text>
+            <Text style={styles.cardCaption}>
+              {execAnalytics.wasteBleed.candidateCount.toLocaleString()} non-converting tokens
             </Text>
           </View>
 
-          <View style={[styles.card, { borderTopWidth: 2, borderTopColor: '#10b981' }]}>
-            <Text style={styles.cardLabel}>Projected Conv. Lift</Text>
-            <Text style={[styles.cardValue, { color: '#059669' }]}>
-              +{Math.round(reallocation.conversionLiftPercent * 10) / 10}%
+          {/* Tier 2: Emerald/Green - Safe-List Protected */}
+          <View
+            style={[
+              styles.card,
+              {
+                borderTopWidth: 2.5,
+                borderTopColor: EXECUTIVE_COLOR_TOKENS.safeList.border,
+                backgroundColor: EXECUTIVE_COLOR_TOKENS.safeList.bg,
+              },
+            ]}
+          >
+            <View style={styles.cardHeaderRow}>
+              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.safeList.text }]}>
+                Safe-List Protected
+              </Text>
+              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.safeList.badgeBg }]}>
+                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.safeList.dark }}>Secured</Text>
+              </View>
+            </View>
+            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.safeList.dark }]}>
+              {execAnalytics.safeListProtection.protectedConversions.toLocaleString()} Convs
             </Text>
-            <Text style={[styles.cardSub, { color: '#059669' }]}>
-              +{Math.round(reallocation.incrementalConversions).toLocaleString()} Conversions
+            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
+              Secured: {execAnalytics.safeListProtection.formattedSecuredRevenue}
+            </Text>
+            <Text style={styles.cardCaption}>
+              {execAnalytics.safeListProtection.exactLockedCount} locked exact queries
             </Text>
           </View>
 
-          <View style={[styles.card, { borderTopWidth: 2, borderTopColor: '#f59e0b' }]}>
-            <Text style={styles.cardLabel}>Capital Efficiency</Text>
-            <Text style={[styles.cardValue, { color: '#d97706' }]}>
-              {Math.round(reallocation.efficiencyMultiplier * 100) / 100}x
+          {/* Tier 3: Amber/Orange - High-Risk Clicks */}
+          <View
+            style={[
+              styles.card,
+              {
+                borderTopWidth: 2.5,
+                borderTopColor: EXECUTIVE_COLOR_TOKENS.highRisk.border,
+                backgroundColor: EXECUTIVE_COLOR_TOKENS.highRisk.bg,
+              },
+            ]}
+          >
+            <View style={styles.cardHeaderRow}>
+              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.highRisk.text }]}>
+                High-Risk Clicks
+              </Text>
+              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.highRisk.badgeBg }]}>
+                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }}>Elasticity</Text>
+              </View>
+            </View>
+            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }]}>
+              {execAnalytics.exploratoryRisk.highRiskClicks.toLocaleString()} Clicks
             </Text>
-            <Text style={[styles.cardSub, { color: '#d97706' }]}>
-              ROAS +{Math.round(reallocation.roasLiftPercent * 10) / 10}%
+            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.highRisk.primary }]}>
+              Ceiling: {execAnalytics.exploratoryRisk.formattedOptimalBidCeiling}
+            </Text>
+            <Text style={styles.cardCaption}>
+              Δ: {execAnalytics.exploratoryRisk.formattedBoundaryDelta} boundary spread
+            </Text>
+          </View>
+
+          {/* Tier 4: Indigo/Slate - Reallocation Yield */}
+          <View
+            style={[
+              styles.card,
+              {
+                borderTopWidth: 2.5,
+                borderTopColor: EXECUTIVE_COLOR_TOKENS.reallocation.border,
+                backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.bg,
+              },
+            ]}
+          >
+            <View style={styles.cardHeaderRow}>
+              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.reallocation.text }]}>
+                Reallocation Yield
+              </Text>
+              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.badgeBg }]}>
+                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }}>Efficiency</Text>
+              </View>
+            </View>
+            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }]}>
+              +{execAnalytics.reallocationYield.incrementalConversions.toFixed(1)} Convs
+            </Text>
+            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
+              Annual: {execAnalytics.reallocationYield.formattedAnnualizedRecovery}
+            </Text>
+            <Text style={styles.cardCaption}>
+              +{execAnalytics.reallocationYield.roasLiftPercent}% ROAS Lift ({Math.round(reallocation.efficiencyMultiplier * 100) / 100}x)
             </Text>
           </View>
         </View>
@@ -269,46 +262,49 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
           <Text style={styles.sectionTitle}>Account Health & Quality Diagnostics</Text>
           <View style={styles.calloutBox}>
             <Text style={styles.calloutText}>
-              • Average Bayesian Confidence Score: {Math.round(kpi.avgConfidence * 100)}% statistical significance.
+              • Average Bayesian Confidence Score: {Math.round(kpi.avgConfidence * 100)}% statistical significance across identified exclusion candidates.
             </Text>
-            <Text style={[styles.calloutText, { marginTop: 4 }]}>
+            <Text style={[styles.calloutText, { marginTop: 3 }]}>
               • Safe-List Collisions Detected: {kpi.collisionCount.toLocaleString()} high-intent terms protected from accidental blocking.
             </Text>
-            <Text style={[styles.calloutText, { marginTop: 4 }]}>
+            <Text style={[styles.calloutText, { marginTop: 3 }]}>
               • Exact Match Isolation: {kpi.exactLockedCount} rules locked to exact bracket format to shield broad match queries.
+            </Text>
+            <Text style={[styles.calloutText, { marginTop: 3 }]}>
+              • Account Spend Waterfall: {execAnalytics.spendWaterfall.formattedTotalSpend} Total Spend ({execAnalytics.spendWaterfall.securedPct}% Secured, {execAnalytics.spendWaterfall.exploratoryPct}% Exploratory, {execAnalytics.spendWaterfall.wastePct}% Waste Bleed).
             </Text>
           </View>
         </View>
 
         {notes && (
           <View style={[styles.calloutBox, { borderLeftWidth: 3, borderLeftColor: accentColor }]}>
-            <Text style={styles.cardLabel}>Audit Scope & Directives</Text>
+            <Text style={[styles.cardLabel, { color: '#334155' }]}>Audit Scope & Directives</Text>
             <Text style={[styles.calloutText, { marginTop: 3 }]}>{notes}</Text>
           </View>
         )}
 
-        <View style={styles.footer}>
+        <View style={styles.footerDeck}>
           <Text style={styles.footerText}>
-            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • {reportDate}
+            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • UTF-8 Verified • {reportDate}
           </Text>
           <Text style={styles.footerText}>1 / 4</Text>
         </View>
       </Page>
 
-      {/* Page 2: Capital Reallocation Model */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
+      {/* Page 2: Capital Reallocation Model & Spend Waterfall */}
+      <Page size="A4" style={styles.deckPage}>
+        <View style={styles.headerDeck}>
           <View>
             <Text style={styles.headerCategory}>Forensic Diagnostic Series • Chapter 2</Text>
-            <Text style={styles.headerTitle}>Capital Reallocation Model</Text>
+            <Text style={styles.headerTitleDeck}>Capital Reallocation Model</Text>
           </View>
           <Text style={styles.pageNumber}>Page 2 / 4</Text>
         </View>
 
-        <View style={[styles.chapterBanner, { borderLeftColor: '#10b981' }]}>
+        <View style={[styles.chapterBanner, { borderLeftColor: EXECUTIVE_COLOR_TOKENS.safeList.border }]}>
           <Text style={styles.chapterTitle}>Marginal Acquisition Cost Reinvestment</Text>
           <Text style={styles.chapterSubtitle}>
-            Modeling performance when recovered waste budget is redirected into campaigns operating at target marginal CPA.
+            Modeling account performance when recovered waste budget is redirected into campaigns operating at target marginal CPA.
           </Text>
         </View>
 
@@ -323,13 +319,13 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
           <View style={styles.tableRow}>
             <Text style={[styles.tableCellBold, { flex: 2.5 }]}>Acquisition Cost (CPA)</Text>
             <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
-              {formatCurrency(reallocation.currentCPA, currencySymbol)}
+              {formatCurrency(reallocation.currentCPA, activeCurrency)}
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#059669' }]}>
-              {formatCurrency(reallocation.projectedCPA, currencySymbol)}
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
+              {formatCurrency(reallocation.projectedCPA, activeCurrency)}
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#059669' }]}>
-              -{Math.round(((reallocation.currentCPA - reallocation.projectedCPA) / reallocation.currentCPA) * 1000) / 10}%
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
+              -{Math.round(((reallocation.currentCPA - reallocation.projectedCPA) / Math.max(1, reallocation.currentCPA)) * 1000) / 10}%
             </Text>
           </View>
 
@@ -338,10 +334,10 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
             <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
               {Math.round(reallocation.projectedConversions - reallocation.incrementalConversions).toLocaleString()}
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#4f46e5' }]}>
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
               {Math.round(reallocation.projectedConversions).toLocaleString()}
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#4f46e5' }]}>
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
               +{Math.round(reallocation.conversionLiftPercent * 10) / 10}%
             </Text>
           </View>
@@ -351,45 +347,117 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
             <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
               {Math.round(reallocation.currentROAS * 100) / 100}x
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#d97706' }]}>
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.highRisk.primary }]}>
               {Math.round(reallocation.projectedROAS * 100) / 100}x
             </Text>
-            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: '#d97706' }]}>
+            <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.highRisk.primary }]}>
               +{Math.round(reallocation.roasLiftPercent * 10) / 10}%
             </Text>
           </View>
         </View>
 
+        {/* Spend Waterfall Allocation Summary Table */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Spend Waterfall Allocation Breakdown</Text>
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderCell, { flex: 2.5 }]}>Allocation Tier</Text>
+              <Text style={[styles.tableHeaderCell, { flex: 1.5, textAlign: 'right' }]}>Allocated Spend</Text>
+              <Text style={[styles.tableHeaderCell, { flex: 1.5, textAlign: 'right' }]}>Share (%)</Text>
+              <Text style={[styles.tableHeaderCell, { flex: 2 }]}>Semantic Classification</Text>
+            </View>
+
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCellBold, { flex: 2.5, color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>Secured / Safe-List</Text>
+              <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.formattedSecuredSpend}
+              </Text>
+              <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.securedPct}%
+              </Text>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Protected converting queries</Text>
+            </View>
+
+            <View style={[styles.tableRow, { backgroundColor: '#f8fafc' }]}>
+              <Text style={[styles.tableCellBold, { flex: 2.5, color: EXECUTIVE_COLOR_TOKENS.highRisk.primary }]}>Exploratory High-Risk</Text>
+              <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.formattedExploratorySpend}
+              </Text>
+              <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.exploratoryPct}%
+              </Text>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Clicks above optimal bid ceiling</Text>
+            </View>
+
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCellBold, { flex: 2.5, color: EXECUTIVE_COLOR_TOKENS.wasteBleed.primary }]}>Identified Waste Bleed</Text>
+              <Text style={[styles.tableCell, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.formattedWasteSpend}
+              </Text>
+              <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right' }]}>
+                {execAnalytics.spendWaterfall.wastePct}%
+              </Text>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Zero-conversion non-profitable drag</Text>
+            </View>
+          </View>
+        </View>
+
         <View style={styles.calloutBox}>
-          <Text style={styles.cardLabel}>Deterministic Equation Model</Text>
-          <Text style={[styles.calloutText, { marginTop: 4 }]}>
-            ΔConversions = Recovered Waste ({formattedWaste}) ÷ Marginal CPA ({formatCurrency(reallocation.marginalCPA, currencySymbol)})
+          <Text style={[styles.cardLabel, { color: '#334155' }]}>Deterministic Equation Model</Text>
+          <Text style={[styles.calloutText, { marginTop: 3 }]}>
+            ΔConversions = Recovered Waste ({execAnalytics.wasteBleed.formatted}) ÷ Marginal CPA ({formatCurrency(reallocation.marginalCPA, activeCurrency)})
             = {Math.round(reallocation.incrementalConversions).toLocaleString()} incremental acquisitions with zero net budget expansion.
           </Text>
         </View>
 
-        <View style={styles.footer}>
+        <View style={styles.footerDeck}>
           <Text style={styles.footerText}>
-            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • {reportDate}
+            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • UTF-8 Verified • {reportDate}
           </Text>
           <Text style={styles.footerText}>2 / 4</Text>
         </View>
       </Page>
 
-      {/* Page 3: Search Term Diagnostics */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
+      {/* Page 3: Search Term Diagnostics, Bid Elasticity & Dilution Metrics */}
+      <Page size="A4" style={styles.deckPage}>
+        <View style={styles.headerDeck}>
           <View>
             <Text style={styles.headerCategory}>Forensic Diagnostic Series • Chapter 3</Text>
-            <Text style={styles.headerTitle}>Search Term Forensic Targets</Text>
+            <Text style={styles.headerTitleDeck}>Search Term Forensic Targets & Dilution</Text>
           </View>
           <Text style={styles.pageNumber}>Page 3 / 4</Text>
         </View>
 
-        <View style={[styles.chapterBanner, { borderLeftColor: '#f59e0b' }]}>
-          <Text style={styles.chapterTitle}>High-Waste Search Query Dispersion</Text>
+        <View style={[styles.chapterBanner, { borderLeftColor: EXECUTIVE_COLOR_TOKENS.highRisk.border }]}>
+          <Text style={styles.chapterTitle}>High-Waste Search Query Dispersion & Dilution Metrics</Text>
           <Text style={styles.chapterSubtitle}>
-            Specific search terms with high clicks and zero conversion velocity draining account resources.
+            Specific search terms with high clicks and zero conversion velocity, paired with bid elasticity boundaries
+            and match-type dilution loss analysis.
+          </Text>
+        </View>
+
+        {/* Bid Elasticity Diagnostics */}
+        <View style={[styles.calloutBox, { borderLeftWidth: 3, borderLeftColor: EXECUTIVE_COLOR_TOKENS.highRisk.border }]}>
+          <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.highRisk.text }]}>Bid Elasticity Diagnostics</Text>
+          <Text style={[styles.calloutText, { marginTop: 3 }]}>
+            • Optimal Bid Ceiling: {execAnalytics.exploratoryRisk.formattedOptimalBidCeiling} (Zone: {execAnalytics.exploratoryRisk.elasticityZone.toUpperCase()})
+          </Text>
+          <Text style={[styles.calloutText, { marginTop: 2 }]}>
+            • Converting Median CPC: {execAnalytics.exploratoryRisk.formattedConvertingMedianCPC} vs Non-Converting Median CPC: {execAnalytics.exploratoryRisk.formattedNonConvertingMedianCPC}
+          </Text>
+          <Text style={[styles.calloutText, { marginTop: 2 }]}>
+            • Boundary Spread Delta (Δ): {execAnalytics.exploratoryRisk.formattedBoundaryDelta} across {execAnalytics.exploratoryRisk.highRiskClicks.toLocaleString()} exploratory clicks.
+          </Text>
+        </View>
+
+        {/* Match-Type Dilution & Fragmented Long-Tail Probe */}
+        <View style={[styles.calloutBox, { borderLeftWidth: 3, borderLeftColor: EXECUTIVE_COLOR_TOKENS.reallocation.border }]}>
+          <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.reallocation.text }]}>Match-Type Dilution & Fragmented Long-Tail</Text>
+          <Text style={[styles.calloutText, { marginTop: 3 }]}>
+            • Match-Type Dilution Index: {Math.round(dilution.dilution_index * 100)}% (Budget Lost: {formatCurrency(dilution.budget_lost, activeCurrency)} across {dilution.diluted_queries_count} diluted queries).
+          </Text>
+          <Text style={[styles.calloutText, { marginTop: 2 }]}>
+            • Fragmented Long-Tail Aggregator: {longTail.identified_root_tokens_count} root tokens causing {formatCurrency(longTail.total_long_tail_waste, activeCurrency)} collective waste across {longTail.total_long_tail_queries} queries (≤ 2 clicks).
           </Text>
         </View>
 
@@ -402,7 +470,7 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
             <Text style={[styles.tableHeaderCell, { flex: 1.2, textAlign: 'center' }]}>Confidence</Text>
           </View>
 
-          {top10Keywords.map((kw, idx) => (
+          {topKeywords.map((kw, idx) => (
             <View
               key={kw.sha256Hash || kw.id || idx}
               style={[styles.tableRow, idx % 2 === 0 ? {} : { backgroundColor: '#f8fafc' }]}
@@ -416,8 +484,8 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
               <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>
                 {(kw.clicks || 0).toLocaleString()}
               </Text>
-              <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right' }]}>
-                {formatCurrency(kw.marginalWaste || 0, currencySymbol)}
+              <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.wasteBleed.primary }]}>
+                {formatCurrency(kw.marginalWaste || 0, activeCurrency)}
               </Text>
               <Text style={[styles.tableCell, { flex: 1.2, textAlign: 'center' }]}>
                 {Math.round((kw.confidenceScore || 0) * 100)}%
@@ -426,20 +494,20 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
           ))}
         </View>
 
-        <View style={styles.footer}>
+        <View style={styles.footerDeck}>
           <Text style={styles.footerText}>
-            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • {reportDate}
+            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • UTF-8 Verified • {reportDate}
           </Text>
           <Text style={styles.footerText}>3 / 4</Text>
         </View>
       </Page>
 
       {/* Page 4: Conflict Guard & Safe-List Audit */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
+      <Page size="A4" style={styles.deckPage}>
+        <View style={styles.headerDeck}>
           <View>
             <Text style={styles.headerCategory}>Forensic Diagnostic Series • Chapter 4</Text>
-            <Text style={styles.headerTitle}>Conflict Guard & Safety Protocol</Text>
+            <Text style={styles.headerTitleDeck}>Conflict Guard & Safety Protocol</Text>
           </View>
           <Text style={styles.pageNumber}>Page 4 / 4</Text>
         </View>
@@ -463,7 +531,7 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
               {collisions.map((c, i) => (
                 <View key={c.sha256Hash || c.id || i} style={styles.tableRow}>
                   <Text style={[styles.tableCellBold, { flex: 3 }]}>{c.keyword}</Text>
-                  <Text style={[styles.tableCell, { flex: 3, color: '#059669' }]}>
+                  <Text style={[styles.tableCell, { flex: 3, color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
                     {c.collidingTerm || (c.collidingSafeTerms && c.collidingSafeTerms[0]) || 'Active Converting Query'}
                   </Text>
                   <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'center', color: '#db2777' }]}>
@@ -474,7 +542,7 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
             </View>
           ) : (
             <View style={styles.calloutBox}>
-              <Text style={[styles.calloutText, { color: '#059669', fontFamily: 'Helvetica-Bold' }]}>
+              <Text style={[styles.calloutText, { color: EXECUTIVE_COLOR_TOKENS.safeList.primary, fontFamily: 'DejaVuSans', fontWeight: 'bold' }]}>
                 ✓ Zero Safe-List Conflicts Detected: All generated negative keywords are completely free from overlap with converting search terms.
               </Text>
             </View>
@@ -487,18 +555,18 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
             <Text style={styles.calloutText}>
               1. Import generated Google Ads Editor TSV or Amazon PPC CSV directly into platform interfaces.
             </Text>
-            <Text style={[styles.calloutText, { marginTop: 4 }]}>
-              2. Validate Exact match lock criteria to maintain safe-list integrity.
+            <Text style={[styles.calloutText, { marginTop: 3 }]}>
+              2. Validate Exact match lock criteria to maintain safe-list integrity across broad keywords.
             </Text>
-            <Text style={[styles.calloutText, { marginTop: 4 }]}>
+            <Text style={[styles.calloutText, { marginTop: 3 }]}>
               3. Monitor marginal CPA shifts over a 14-day evaluation window post-implementation.
             </Text>
           </View>
         </View>
 
-        <View style={styles.footer}>
+        <View style={styles.footerDeck}>
           <Text style={styles.footerText}>
-            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • {reportDate}
+            Generated via Sieve Client-Side Vector Engine • Confidential Client Report • UTF-8 Verified • {reportDate}
           </Text>
           <Text style={styles.footerText}>4 / 4</Text>
         </View>
