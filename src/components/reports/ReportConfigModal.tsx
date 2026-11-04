@@ -141,8 +141,8 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           reportDate,
           analytics,
           thresholds,
-          longTailResult,
-          dilutionResult,
+          longTailResult: longTailResult ?? undefined,
+          dilutionResult: dilutionResult ?? undefined,
           redactPii,
         });
         filename = `${organizationTitle.toLowerCase().replace(/\s+/g, '-')}-forensic-deck.pdf`;

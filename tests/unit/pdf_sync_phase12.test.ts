@@ -154,7 +154,7 @@ describe('Phase 12: High-Fidelity Vector PDF Synchronization', () => {
     const element = React.createElement(ForensicDeck, props);
     assert.ok(React.isValidElement(element));
     assert.equal(element.props.currencySymbol, '€');
-    assert.equal(element.props.analytics.exploratoryRisk.highRiskClicks, analytics.exploratoryRisk.highRiskClicks);
+    assert.equal(element.props.analytics!.exploratoryRisk.highRiskClicks, analytics.exploratoryRisk.highRiskClicks);
   });
 
   test('Multi-Currency Vector PDF Synthesis across all supported currencies ($, ₹, €, ¥, £)', async () => {

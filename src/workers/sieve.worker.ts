@@ -19,6 +19,7 @@ import type {
 } from './protocol.ts';
 import * as duckdb from '@duckdb/duckdb-wasm/blocking';
 import * as arrow from 'apache-arrow';
+import { parseCsvTextToRecords, detectCurrencySymbol } from '../utils/csvParser.ts';
 
 export class SieveWorkerCore {
   private instance: WebAssembly.Instance | null = null;
@@ -256,397 +257,470 @@ export class SieveWorkerCore {
         }
 
         case 'INGEST_CSV_CHUNK': {
-          const chunk = new Uint8Array(command.chunkBuffer);
+          try {
+            const chunk = new Uint8Array(command.chunkBuffer);
 
-          // Schema / payload integrity boundary verification:
-          // Check for empty or non-text corrupted headers
-          if (chunk.length < 8) {
-            throw new Error(
-              'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)'
-            );
-          }
+            // Schema / payload integrity boundary verification:
+            // Check for empty or non-text corrupted headers
+            if (chunk.length < 8) {
+              throw new Error(
+                'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)'
+              );
+            }
 
-          // Check if payload starts with binary garbage (non-printable control chars except BOM/CR/LF/TAB)
-          let hasPrintable = false;
-          let nonPrintableCount = 0;
-          const checkLen = Math.min(chunk.length, 64);
+            // Check if payload starts with binary garbage (non-printable control chars except BOM/CR/LF/TAB)
+            let hasPrintable = false;
+            let nonPrintableCount = 0;
+            const checkLen = Math.min(chunk.length, 64);
 
-          // Check for UTF-16LE BOM [0xFF, 0xFE], UTF-16BE BOM [0xFE, 0xFF], UTF-8 BOM [0xEF, 0xBB, 0xBF]
-          const isUtf16BOM = chunk.length >= 2 && chunk[0] === 0xff && chunk[1] === 0xfe;
-          const isUtf16BEBOM = chunk.length >= 2 && chunk[0] === 0xfe && chunk[1] === 0xff;
-          const isUtf8BOM = chunk.length >= 3 && chunk[0] === 0xef && chunk[1] === 0xbb && chunk[2] === 0xbf;
+            // Check for UTF-16LE BOM [0xFF, 0xFE], UTF-16BE BOM [0xFE, 0xFF], UTF-8 BOM [0xEF, 0xBB, 0xBF]
+            const isUtf16BOM = chunk.length >= 2 && chunk[0] === 0xff && chunk[1] === 0xfe;
+            const isUtf16BEBOM = chunk.length >= 2 && chunk[0] === 0xfe && chunk[1] === 0xff;
+            const isUtf8BOM = chunk.length >= 3 && chunk[0] === 0xef && chunk[1] === 0xbb && chunk[2] === 0xbf;
 
-          const startIdx = isUtf8BOM ? 3 : (isUtf16BOM || isUtf16BEBOM) ? 2 : 0;
+            const startIdx = isUtf8BOM ? 3 : (isUtf16BOM || isUtf16BEBOM) ? 2 : 0;
 
-          if (!isUtf16BOM && !isUtf16BEBOM) {
-            for (let i = startIdx; i < checkLen; i++) {
-              const b = chunk[i];
-              if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e) || b >= 0x80) {
-                hasPrintable = true;
-              } else if (b < 0x20 || b === 0x7f) {
-                nonPrintableCount++;
+            if (!isUtf16BOM && !isUtf16BEBOM) {
+              for (let i = startIdx; i < checkLen; i++) {
+                const b = chunk[i];
+                if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e) || b >= 0x80) {
+                  hasPrintable = true;
+                } else if (b < 0x20 || b === 0x7f) {
+                  nonPrintableCount++;
+                }
+              }
+
+              if (!hasPrintable || nonPrintableCount > 2) {
+                throw new Error(
+                  'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (unprintable control characters)'
+                );
               }
             }
 
-            if (!hasPrintable || nonPrintableCount > 2) {
-              throw new Error(
-                'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (unprintable control characters)'
-              );
-            }
-          }
-
-          // Ingest into WASM engine
-          const inPtr = this.exports.allocate_buffer(chunk.length);
-          if (inPtr === 0) {
-            throw new Error('MEMORY_ALLOC_FAILURE: Failed to allocate linear memory for chunk');
-          }
-
-          try {
-            new Uint8Array(this.memory!.buffer, inPtr, chunk.length).set(chunk);
-            const statusCode = this.exports.engine_ingest_chunk(
-              this.enginePtr,
-              inPtr,
-              chunk.length,
-              command.isFinal ? 1 : 0
-            );
-
-            if (statusCode < 0) {
-              throw new Error(
-                `PARSE_ERROR: engine_ingest_chunk returned error code ${statusCode}`
-              );
+            // Ingest into WASM engine
+            const inPtr = this.exports.allocate_buffer(chunk.length);
+            if (inPtr === 0) {
+              throw new Error('MEMORY_ALLOC_FAILURE: Failed to allocate linear memory for chunk');
             }
 
-            let extractedKeywords: PersistedNegativeKeyword[] | undefined = undefined;
+            try {
+              new Uint8Array(this.memory!.buffer, inPtr, chunk.length).set(chunk);
+              const statusCode = this.exports.engine_ingest_chunk(
+                this.enginePtr,
+                inPtr,
+                chunk.length,
+                command.isFinal ? 1 : 0
+              );
 
-            if (command.isFinal) {
-              const outCap = 16 * 1024 * 1024; // 16MB buffer
-              const outPtr = this.exports.allocate_buffer(outCap);
-              try {
-                let processedViaColumnar = false;
+              if (statusCode < 0) {
+                throw new Error(
+                  `PARSE_ERROR: engine_ingest_chunk returned error code ${statusCode}`
+                );
+              }
 
-                // Priority 1: Zero-copy Arrow IPC serialization from WASM columnar memory
-                if (typeof this.exports.engine_export_columnar_records === 'function') {
-                  const written = this.exports.engine_export_columnar_records(
-                    this.enginePtr,
-                    outPtr,
-                    outCap
-                  );
+              let extractedKeywords: PersistedNegativeKeyword[] | undefined = undefined;
 
-                  if (written >= 80) {
-                    const header = new Uint32Array(this.memory!.buffer, outPtr, 20);
-                    const magic = header[0];
-                    const version = header[1];
-                    const rowCount = header[2];
+              if (command.isFinal) {
+                const outCap = 16 * 1024 * 1024; // 16MB buffer
+                const outPtr = this.exports.allocate_buffer(outCap);
+                try {
+                  let processedViaColumnar = false;
 
-                    if (magic === 0x53494556 && version === 1 && rowCount > 0) {
-                      const queryOffsetsPos = header[3];
-                      const queryDataPos = header[5];
-                      const queryDataLen = header[6];
+                  // Priority 1: Zero-copy Arrow IPC serialization from WASM columnar memory
+                  if (typeof this.exports.engine_export_columnar_records === 'function') {
+                    const written = this.exports.engine_export_columnar_records(
+                      this.enginePtr,
+                      outPtr,
+                      outCap
+                    );
 
-                      const campaignOffsetsPos = header[7];
-                      const campaignDataPos = header[9];
-                      const campaignDataLen = header[10];
+                    if (written >= 80) {
+                      const header = new Uint32Array(this.memory!.buffer, outPtr, 20);
+                      const magic = header[0];
+                      const version = header[1];
+                      const rowCount = header[2];
 
-                      const adgroupOffsetsPos = header[11];
-                      const adgroupDataPos = header[13];
-                      const adgroupDataLen = header[14];
+                      if (magic === 0x53494556 && version === 1 && rowCount > 0) {
+                        const queryOffsetsPos = header[3];
+                        const queryDataPos = header[5];
+                        const queryDataLen = header[6];
 
-                      const clicksPos = header[15];
-                      const costPos = header[16];
-                      const conversionsPos = header[17];
-                      const hasCollisionPos = header[18];
+                        const campaignOffsetsPos = header[7];
+                        const campaignDataPos = header[9];
+                        const campaignDataLen = header[10];
 
-                      // Direct zero-copy TypedArray views into WebAssembly linear memory
-                      const queryOffsets = new Int32Array(
-                        this.memory!.buffer,
-                        outPtr + queryOffsetsPos,
-                        rowCount + 1
-                      );
-                      const queryData = new Uint8Array(
-                        this.memory!.buffer,
-                        outPtr + queryDataPos,
-                        queryDataLen
-                      );
+                        const adgroupOffsetsPos = header[11];
+                        const adgroupDataPos = header[13];
+                        const adgroupDataLen = header[14];
 
-                      const campaignOffsets = new Int32Array(
-                        this.memory!.buffer,
-                        outPtr + campaignOffsetsPos,
-                        rowCount + 1
-                      );
-                      const campaignData = new Uint8Array(
-                        this.memory!.buffer,
-                        outPtr + campaignDataPos,
-                        campaignDataLen
-                      );
+                        const clicksPos = header[15];
+                        const costPos = header[16];
+                        const conversionsPos = header[17];
+                        const hasCollisionPos = header[18];
 
-                      const adgroupOffsets = new Int32Array(
-                        this.memory!.buffer,
-                        outPtr + adgroupOffsetsPos,
-                        rowCount + 1
-                      );
-                      const adgroupData = new Uint8Array(
-                        this.memory!.buffer,
-                        outPtr + adgroupDataPos,
-                        adgroupDataLen
-                      );
+                        // Direct zero-copy TypedArray views into WebAssembly linear memory
+                        const queryOffsets = new Int32Array(
+                          this.memory!.buffer,
+                          outPtr + queryOffsetsPos,
+                          rowCount + 1
+                        );
+                        const queryData = new Uint8Array(
+                          this.memory!.buffer,
+                          outPtr + queryDataPos,
+                          queryDataLen
+                        );
 
-                      const clicks = new Float64Array(
-                        this.memory!.buffer,
-                        outPtr + clicksPos,
-                        rowCount
-                      );
-                      const cost = new Float64Array(
-                        this.memory!.buffer,
-                        outPtr + costPos,
-                        rowCount
-                      );
-                      const conversions = new Float64Array(
-                        this.memory!.buffer,
-                        outPtr + conversionsPos,
-                        rowCount
-                      );
-                      const hasCollision = new Uint8Array(
-                        this.memory!.buffer,
-                        outPtr + hasCollisionPos,
-                        rowCount
-                      );
+                        const campaignOffsets = new Int32Array(
+                          this.memory!.buffer,
+                          outPtr + campaignOffsetsPos,
+                          rowCount + 1
+                        );
+                        const campaignData = new Uint8Array(
+                          this.memory!.buffer,
+                          outPtr + campaignDataPos,
+                          campaignDataLen
+                        );
 
-                      // Build Apache Arrow Vectors & Table without copying raw memory
-                      const queryVector = arrow.makeVector({
-                        type: new arrow.Utf8(),
-                        offset: 0,
-                        length: rowCount,
-                        nullCount: 0,
-                        data: queryData,
-                        valueOffsets: queryOffsets,
-                      });
-                      const campaignVector = arrow.makeVector({
-                        type: new arrow.Utf8(),
-                        offset: 0,
-                        length: rowCount,
-                        nullCount: 0,
-                        data: campaignData,
-                        valueOffsets: campaignOffsets,
-                      });
-                      const adgroupVector = arrow.makeVector({
-                        type: new arrow.Utf8(),
-                        offset: 0,
-                        length: rowCount,
-                        nullCount: 0,
-                        data: adgroupData,
-                        valueOffsets: adgroupOffsets,
-                      });
-                      const clicksVector = arrow.makeVector(clicks);
-                      const costVector = arrow.makeVector(cost);
-                      const conversionsVector = arrow.makeVector(conversions);
-                      const collisionVector = arrow.vectorFromArray(
-                        Array.from(hasCollision, (v) => v !== 0)
-                      );
+                        const adgroupOffsets = new Int32Array(
+                          this.memory!.buffer,
+                          outPtr + adgroupOffsetsPos,
+                          rowCount + 1
+                        );
+                        const adgroupData = new Uint8Array(
+                          this.memory!.buffer,
+                          outPtr + adgroupDataPos,
+                          adgroupDataLen
+                        );
 
-                      const arrowTable = new arrow.Table({
-                        query: queryVector,
-                        campaign: campaignVector,
-                        adgroup: adgroupVector,
-                        clicks: clicksVector,
-                        cost: costVector,
-                        conversions: conversionsVector,
-                        has_collision: collisionVector,
-                      });
+                        const clicks = new Float64Array(
+                          this.memory!.buffer,
+                          outPtr + clicksPos,
+                          rowCount
+                        );
+                        const cost = new Float64Array(
+                          this.memory!.buffer,
+                          outPtr + costPos,
+                          rowCount
+                        );
+                        const conversions = new Float64Array(
+                          this.memory!.buffer,
+                          outPtr + conversionsPos,
+                          rowCount
+                        );
+                        const hasCollision = new Uint8Array(
+                          this.memory!.buffer,
+                          outPtr + hasCollisionPos,
+                          rowCount
+                        );
 
-                      // Serialize to Apache Arrow IPC Stream
-                      const ipcBuffer = arrow.tableToIPC(arrowTable, 'stream');
+                        // Build Apache Arrow Vectors & Table without copying raw memory
+                        const queryVector = arrow.makeVector({
+                          type: new arrow.Utf8(),
+                          offset: 0,
+                          length: rowCount,
+                          nullCount: 0,
+                          data: queryData,
+                          valueOffsets: queryOffsets,
+                        });
+                        const campaignVector = arrow.makeVector({
+                          type: new arrow.Utf8(),
+                          offset: 0,
+                          length: rowCount,
+                          nullCount: 0,
+                          data: campaignData,
+                          valueOffsets: campaignOffsets,
+                        });
+                        const adgroupVector = arrow.makeVector({
+                          type: new arrow.Utf8(),
+                          offset: 0,
+                          length: rowCount,
+                          nullCount: 0,
+                          data: adgroupData,
+                          valueOffsets: adgroupOffsets,
+                        });
+                        const clicksVector = arrow.makeVector(clicks);
+                        const costVector = arrow.makeVector(cost);
+                        const conversionsVector = arrow.makeVector(conversions);
+                        const collisionVector = arrow.vectorFromArray(
+                          Array.from(hasCollision, (v) => v !== 0)
+                        );
 
-                      // Embed & Synchronize inside DuckDB-Wasm virtual table
-                      try {
-                        await this.ensureDuckDB();
-                        if (this.duckdbConn) {
-                          // Unlink and drop in-memory virtual tables immediately when a new report is loaded
-                          try {
-                            this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
-                          } catch {}
-                          this.duckdbConn.insertArrowFromIPCStream(ipcBuffer, {
-                            name: 'search_terms',
+                        const arrowTable = new arrow.Table({
+                          query: queryVector,
+                          campaign: campaignVector,
+                          adgroup: adgroupVector,
+                          clicks: clicksVector,
+                          cost: costVector,
+                          conversions: conversionsVector,
+                          has_collision: collisionVector,
+                        });
+
+                        // Serialize to Apache Arrow IPC Stream
+                        const ipcBuffer = arrow.tableToIPC(arrowTable, 'stream');
+
+                        // Embed & Synchronize inside DuckDB-Wasm virtual table
+                        try {
+                          await this.ensureDuckDB();
+                          if (this.duckdbConn) {
+                            try {
+                              this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
+                            } catch {}
+                            this.duckdbConn.insertArrowFromIPCStream(ipcBuffer, {
+                              name: 'search_terms',
+                            });
+                          }
+                        } catch (duckErr) {
+                          console.error('Failed to register Arrow IPC stream into DuckDB-Wasm:', duckErr);
+                        }
+
+                        // Build persisted keywords directly from columnar slices without JSON.parse
+                        const dec = new TextDecoder();
+                        const now = Date.now();
+                        const targetCPA = command.targetCPA ?? 50;
+                        extractedKeywords = [];
+
+                        for (let i = 0; i < rowCount; i++) {
+                          const q = dec.decode(
+                            queryData.subarray(queryOffsets[i], queryOffsets[i + 1])
+                          );
+                          if (!q || !q.trim()) continue;
+
+                          const camp = dec.decode(
+                            campaignData.subarray(campaignOffsets[i], campaignOffsets[i + 1])
+                          );
+                          const adg = dec.decode(
+                            adgroupData.subarray(adgroupOffsets[i], adgroupOffsets[i + 1])
+                          );
+                          const clk = clicks[i] || 0;
+                          const cst = cost[i] || 0;
+                          const conv = conversions[i] || 0;
+                          const coll = hasCollision[i] !== 0;
+
+                          const matchType: 'exact' | 'phrase' | 'broad' = coll
+                            ? 'exact'
+                            : clk >= 10
+                            ? 'phrase'
+                            : 'broad';
+
+                          const formatted =
+                            matchType === 'exact'
+                              ? `[${q}]`
+                              : matchType === 'phrase'
+                              ? `"${q}"`
+                              : q;
+
+                          const waste =
+                            conv <= 0
+                              ? Math.round(cst * 100) / 100
+                              : Math.max(0, Math.round((cst - conv * targetCPA) * 100) / 100);
+
+                          const confidence =
+                            clk > 0
+                              ? Math.min(
+                                  0.99,
+                                  Math.max(0.65, Math.round((1 - conv / (clk + 1)) * 100) / 100)
+                                )
+                              : 0.8;
+
+                          extractedKeywords.push({
+                            sha256Hash: `hash_${q}_${now}_${i}`,
+                            keyword: q,
+                            matchType,
+                            formattedRule: formatted,
+                            platform: 1 as PlatformSchema,
+                            confidenceScore: confidence,
+                            marginalWaste: waste,
+                            hasCollision: coll,
+                            collidingSafeTerms: coll ? [`converting ${q}`] : undefined,
+                            clicks: clk,
+                            cost: cst,
+                            conversions: conv,
+                            firstSeenCampaign: camp || undefined,
+                            createdAt: now - i * 10,
+                            scope: {
+                              campaign: camp || undefined,
+                              adGroup: adg || undefined,
+                            },
                           });
                         }
-                      } catch (duckErr) {
-                        console.error('Failed to register Arrow IPC stream into DuckDB-Wasm:', duckErr);
+
+                        processedViaColumnar = true;
                       }
-
-                      // Build persisted keywords directly from columnar slices without JSON.parse
-                      const dec = new TextDecoder();
-                      const now = Date.now();
-                      const targetCPA = command.targetCPA ?? 50;
-                      extractedKeywords = [];
-
-                      for (let i = 0; i < rowCount; i++) {
-                        const q = dec.decode(
-                          queryData.subarray(queryOffsets[i], queryOffsets[i + 1])
-                        );
-                        if (!q || !q.trim()) continue;
-
-                        const camp = dec.decode(
-                          campaignData.subarray(campaignOffsets[i], campaignOffsets[i + 1])
-                        );
-                        const adg = dec.decode(
-                          adgroupData.subarray(adgroupOffsets[i], adgroupOffsets[i + 1])
-                        );
-                        const clk = clicks[i] || 0;
-                        const cst = cost[i] || 0;
-                        const conv = conversions[i] || 0;
-                        const coll = hasCollision[i] !== 0;
-
-                        const matchType: 'exact' | 'phrase' | 'broad' = coll
-                          ? 'exact'
-                          : clk >= 10
-                          ? 'phrase'
-                          : 'broad';
-
-                        const formatted =
-                          matchType === 'exact'
-                            ? `[${q}]`
-                            : matchType === 'phrase'
-                            ? `"${q}"`
-                            : q;
-
-                        const waste =
-                          conv <= 0
-                            ? Math.round(cst * 100) / 100
-                            : Math.max(0, Math.round((cst - conv * targetCPA) * 100) / 100);
-
-                        const confidence =
-                          clk > 0
-                            ? Math.min(
-                                0.99,
-                                Math.max(0.65, Math.round((1 - conv / (clk + 1)) * 100) / 100)
-                              )
-                            : 0.8;
-
-                        extractedKeywords.push({
-                          sha256Hash: `hash_${q}_${now}_${i}`,
-                          keyword: q,
-                          matchType,
-                          formattedRule: formatted,
-                          platform: 1 as PlatformSchema,
-                          confidenceScore: confidence,
-                          marginalWaste: waste,
-                          hasCollision: coll,
-                          collidingSafeTerms: coll ? [`converting ${q}`] : undefined,
-                          clicks: clk,
-                          cost: cst,
-                          conversions: conv,
-                          firstSeenCampaign: camp || undefined,
-                          createdAt: now - i * 10,
-                          scope: {
-                            campaign: camp || undefined,
-                            adGroup: adg || undefined,
-                          },
-                        });
-                      }
-
-                      processedViaColumnar = true;
                     }
                   }
-                }
 
-                // Fallback: Legacy JSON export if columnar was not used
-                if (!processedViaColumnar && typeof this.exports.engine_export_query_records === 'function') {
-                  const written = this.exports.engine_export_query_records(
-                    this.enginePtr,
-                    outPtr,
-                    outCap
-                  );
-                  if (written > 0) {
-                    const jsonStr = new TextDecoder().decode(
-                      new Uint8Array(this.memory!.buffer, outPtr, written)
+                  // Fallback: Legacy JSON export if columnar was not used
+                  if (!processedViaColumnar && typeof this.exports.engine_export_query_records === 'function') {
+                    const written = this.exports.engine_export_query_records(
+                      this.enginePtr,
+                      outPtr,
+                      outCap
                     );
-                    const records: Array<{
-                      query: string;
-                      campaign: string;
-                      adgroup: string;
-                      clicks: number;
-                      cost: number;
-                      conversions: number;
-                      has_collision: boolean;
-                    }> = JSON.parse(jsonStr);
+                    if (written > 0) {
+                      const jsonStr = new TextDecoder().decode(
+                        new Uint8Array(this.memory!.buffer, outPtr, written)
+                      );
+                      const records: Array<{
+                        query: string;
+                        campaign: string;
+                        adgroup: string;
+                        clicks: number;
+                        cost: number;
+                        conversions: number;
+                        has_collision: boolean;
+                      }> = JSON.parse(jsonStr);
 
-                    const now = Date.now();
-                    const targetCPA = command.targetCPA ?? 50;
-                    extractedKeywords = records
-                      .filter((r) => r.query && r.query.trim().length > 0)
-                      .map((r, idx) => {
-                        const matchType: 'exact' | 'phrase' | 'broad' = r.has_collision
-                          ? 'exact'
-                          : r.clicks >= 10
-                          ? 'phrase'
-                          : 'broad';
+                      const now = Date.now();
+                      const targetCPA = command.targetCPA ?? 50;
+                      extractedKeywords = records
+                        .filter((r) => r.query && r.query.trim().length > 0)
+                        .map((r, idx) => {
+                          const matchType: 'exact' | 'phrase' | 'broad' = r.has_collision
+                            ? 'exact'
+                            : r.clicks >= 10
+                            ? 'phrase'
+                            : 'broad';
 
-                        const formatted =
-                          matchType === 'exact'
-                            ? `[${r.query}]`
-                            : matchType === 'phrase'
-                            ? `"${r.query}"`
-                            : r.query;
+                          const formatted =
+                            matchType === 'exact'
+                              ? `[${r.query}]`
+                              : matchType === 'phrase'
+                              ? `"${r.query}"`
+                              : r.query;
 
-                        const cost = r.cost || 0;
-                        const conv = r.conversions || 0;
-                        const waste =
-                          conv <= 0
-                            ? Math.round(cost * 100) / 100
-                            : Math.max(0, Math.round((cost - conv * targetCPA) * 100) / 100);
+                          const cost = r.cost || 0;
+                          const conv = r.conversions || 0;
+                          const waste =
+                            conv <= 0
+                              ? Math.round(cost * 100) / 100
+                              : Math.max(0, Math.round((cost - conv * targetCPA) * 100) / 100);
 
-                        const confidence =
-                          r.clicks > 0
-                            ? Math.min(
-                                0.99,
-                                Math.max(
-                                  0.65,
-                                  Math.round((1 - r.conversions / (r.clicks + 1)) * 100) / 100
+                          const confidence =
+                            r.clicks > 0
+                              ? Math.min(
+                                  0.99,
+                                  Math.max(
+                                    0.65,
+                                    Math.round((1 - r.conversions / (r.clicks + 1)) * 100) / 100
+                                  )
                                 )
-                              )
-                            : 0.8;
+                              : 0.8;
 
-                        return {
-                          sha256Hash: `hash_${r.query}_${now}_${idx}`,
-                          keyword: r.query,
-                          matchType,
-                          formattedRule: formatted,
-                          platform: 1 as PlatformSchema,
-                          confidenceScore: confidence,
-                          marginalWaste: waste,
-                          hasCollision: r.has_collision,
-                          collidingSafeTerms: r.has_collision
-                            ? [`converting ${r.query}`]
-                            : undefined,
-                          clicks: r.clicks,
-                          cost: r.cost,
-                          conversions: r.conversions,
-                          firstSeenCampaign: r.campaign || undefined,
-                          createdAt: now - idx * 10,
-                          scope: {
-                            campaign: r.campaign || undefined,
-                            adGroup: r.adgroup || undefined,
-                          },
-                        };
-                      });
+                          return {
+                            sha256Hash: `hash_${r.query}_${now}_${idx}`,
+                            keyword: r.query,
+                            matchType,
+                            formattedRule: formatted,
+                            platform: 1 as PlatformSchema,
+                            confidenceScore: confidence,
+                            marginalWaste: waste,
+                            hasCollision: r.has_collision,
+                            collidingSafeTerms: r.has_collision
+                              ? [`converting ${r.query}`]
+                              : undefined,
+                            clicks: r.clicks,
+                            cost: r.cost,
+                            conversions: r.conversions,
+                            firstSeenCampaign: r.campaign || undefined,
+                            createdAt: now - idx * 10,
+                            scope: {
+                              campaign: r.campaign || undefined,
+                              adGroup: r.adgroup || undefined,
+                            },
+                          };
+                        });
+                    }
                   }
+                } catch (e) {
+                  console.error('Failed to export query records:', e);
+                } finally {
+                  this.exports.deallocate_buffer(outPtr, outCap);
                 }
-              } catch (e) {
-                console.error('Failed to export query records:', e);
-              } finally {
-                this.exports.deallocate_buffer(outPtr, outCap);
               }
-            }
 
-            return {
-              type: 'INGEST_CHUNK_COMPLETE',
-              requestId: command.requestId,
-              statusCode,
-              bytesConsumed: chunk.length,
-              workerId: this.workerId,
-              keywords: extractedKeywords,
-            };
-          } finally {
-            this.exports.deallocate_buffer(inPtr, chunk.length);
+              // Fallback TypeScript CSV parser if WASM did not extract keywords
+              if (command.isFinal && (!extractedKeywords || extractedKeywords.length === 0)) {
+                try {
+                  const text = new TextDecoder('utf-8', { fatal: false }).decode(chunk);
+                  const parsed = parseCsvTextToRecords(text, command.targetCPA ?? 50);
+                  if (parsed.records && parsed.records.length > 0) {
+                    extractedKeywords = parsed.records;
+                  }
+                } catch (fallbackErr) {
+                  console.error('Fallback TS CSV parser error:', fallbackErr);
+                }
+              }
+
+              // When finished parsing, dispatch PARSE_SUCCESS event
+              if (command.isFinal) {
+                const records = extractedKeywords || [];
+                let totalWaste = 0;
+                let totalConfidence = 0;
+                let collisionCount = 0;
+                let exactLockedCount = 0;
+                let totalClicks = 0;
+                let totalCost = 0;
+                let totalConversions = 0;
+
+                for (const r of records) {
+                  totalWaste += r.marginalWaste || 0;
+                  totalConfidence += r.confidenceScore || 0;
+                  if (r.hasCollision) collisionCount++;
+                  if (r.matchType === 'exact') exactLockedCount++;
+                  totalClicks += r.clicks || 0;
+                  totalCost += r.cost || 0;
+                  totalConversions += r.conversions || 0;
+                }
+
+                const summary = {
+                  totalKeywords: records.length,
+                  totalWaste: Math.round(totalWaste * 100) / 100,
+                  collisionCount,
+                  avgConfidence:
+                    records.length > 0
+                      ? Math.round((totalConfidence / records.length) * 1000) / 1000
+                      : 0,
+                  exactLockedCount,
+                  totalClicks,
+                  totalCost: Math.round(totalCost * 100) / 100,
+                  totalConversions,
+                };
+
+                let currency = '$';
+                try {
+                  const sampleText = new TextDecoder('utf-8', { fatal: false }).decode(
+                    chunk.subarray(0, Math.min(chunk.length, 32768))
+                  );
+                  currency = detectCurrencySymbol(sampleText);
+                } catch {}
+
+                if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function') {
+                  (self as any).postMessage({
+                    type: 'PARSE_SUCCESS',
+                    payload: { records, summary, currency },
+                  });
+                }
+              }
+
+              return {
+                type: 'INGEST_CHUNK_COMPLETE',
+                requestId: command.requestId,
+                statusCode,
+                bytesConsumed: chunk.length,
+                workerId: this.workerId,
+                keywords: extractedKeywords,
+              };
+            } finally {
+              this.exports.deallocate_buffer(inPtr, chunk.length);
+            }
+          } catch (err: any) {
+            if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function') {
+              (self as any).postMessage({
+                type: 'PARSE_ERROR',
+                payload: { message: err?.message || String(err) },
+              });
+            }
+            throw err;
           }
         }
 
@@ -1088,7 +1162,14 @@ export class SieveWorkerCore {
 if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function' && typeof window === 'undefined') {
   const core = new SieveWorkerCore();
   self.addEventListener('message', async (e: MessageEvent<WorkerCommand>) => {
-    const res = await core.handleCommand(e.data);
-    (self as any).postMessage(res);
+    try {
+      const res = await core.handleCommand(e.data);
+      (self as any).postMessage(res);
+    } catch (err: any) {
+      (self as any).postMessage({
+        type: 'PARSE_ERROR',
+        payload: { message: err?.message || String(err) },
+      });
+    }
   });
 }

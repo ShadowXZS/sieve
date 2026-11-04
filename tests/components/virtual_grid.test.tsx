@@ -261,7 +261,7 @@ test('Sub-10ms state updates: Verify that simulated parameter updates resolve UI
   const filtered = useSieveStore.getState().filteredKeywords;
   assert.ok(filtered.length > 0, 'Filtered keywords must be computed');
   assert.ok(
-    filtered.every((k) => k.confidenceScore >= 0.9 && k.marginalWaste <= 500),
+    filtered.every((k) => k.confidenceScore >= 0.9 && (k.marginalWaste ?? 0) <= 500),
     'All filtered keywords must satisfy thresholds'
   );
 });

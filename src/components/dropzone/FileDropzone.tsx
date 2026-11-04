@@ -9,6 +9,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
+import { parseCsvTextToRecords } from '../../utils/csvParser.ts';
 
 export interface FileDropzoneProps {
   workerPool?: SieveWorkerPool;
@@ -101,6 +102,12 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
               if (res.keywords && res.keywords.length > 0) {
                 allKeywords.push(...res.keywords);
               }
+            } else if (isFinal) {
+              const text = await file.text();
+              const parsed = parseCsvTextToRecords(text, targetCPA);
+              if (parsed.records && parsed.records.length > 0) {
+                allKeywords.push(...parsed.records);
+              }
             }
 
             const fileProgress = (chunkIdx + 1) / totalChunks;
@@ -112,8 +119,18 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
           }
         }
 
+        if (allKeywords.length === 0 && files.length > 0) {
+          for (const f of files) {
+            const text = await f.text();
+            const parsed = parseCsvTextToRecords(text, useSieveStore.getState().thresholds.targetCPA);
+            if (parsed.records && parsed.records.length > 0) {
+              allKeywords.push(...parsed.records);
+            }
+          }
+        }
+
         if (allKeywords.length > 0) {
-          useSieveStore.getState().setKeywords(allKeywords);
+          useSieveStore.getState().handleParseSuccess({ records: allKeywords });
         }
 
         onIngestComplete?.(files);

@@ -229,7 +229,7 @@ describe('Phase 14: Privacy Attestation & Release Hardening UI', () => {
     // Call component function to obtain rendered element tree
     const doc = AuditOnePager({
       kpi,
-      reallocation,
+      reallocation: reallocation as any,
       topKeywords: SAMPLE_KEYWORDS_WITH_PII,
       redactPii: true,
     });

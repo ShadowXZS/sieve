@@ -95,8 +95,8 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
       thresholds || {
         targetCPA: reallocation.marginalCPA || 50,
         minClicks: 10,
-        minSpend: 50,
-        minConfidence: 0.9,
+        maxMarginalWaste: 100000,
+        confidenceScore: 0.9,
       },
       kpi,
       activeCurrency

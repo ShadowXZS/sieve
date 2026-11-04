@@ -131,13 +131,13 @@ export interface PersistedNegativeKeyword {
   /** Match type representation: broad, phrase, or exact bracketed [keyword] */
   matchType: 'broad' | 'phrase' | 'exact';
   /** Formatted rule string (e.g. "[cheap shoes]" or "cheap shoes") */
-  formattedRule: string;
+  formattedRule?: string;
   /** Platform origin */
-  platform: PlatformSchema;
+  platform?: PlatformSchema;
   /** Confidence score derived from Beta CDF or Wilson bounds (0.0 to 1.0) */
   confidenceScore: number;
   /** Marginal CPA drag waste estimated in account currency */
-  marginalWaste: number;
+  marginalWaste?: number;
   /** Collision flag indicating exact bracket forcing */
   hasCollision: boolean;
   /** Terms that caused collision safety override */
@@ -152,6 +152,12 @@ export interface PersistedNegativeKeyword {
   conversions?: number;
   /** Linguistic fingerprint / cluster identifier */
   linguisticFingerprint?: string;
+  /** Cluster identifier */
+  clusterId?: string;
+  /** Campaign identifier */
+  campaignId?: string;
+  /** AdGroup identifier */
+  adGroupId?: string;
   /** Campaign where search term was first identified */
   firstSeenCampaign?: string;
   /** Timestamp when keyword candidate was synthesized */

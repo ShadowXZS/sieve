@@ -138,7 +138,7 @@ describe('Phase 12 TDD: Executive Dashboard Vector PDF Synchronization', () => {
 
       assert.equal(element.props.currencySymbol, currency, `Currency prop must match ${currency}`);
       assert.ok(
-        element.props.analytics.wasteBleed.formatted.includes(currency),
+        element.props.analytics!.wasteBleed.formatted.includes(currency),
         `Formatted waste must contain active currency symbol ${currency}`
       );
     }
@@ -166,7 +166,7 @@ describe('Phase 12 TDD: Executive Dashboard Vector PDF Synchronization', () => {
     assert.ok(React.isValidElement(rendered), 'AuditOnePager must render valid element');
 
     // Inspect document structure
-    const page = React.Children.toArray(rendered.props.children).find(
+    const page = React.Children.toArray((rendered as any).props.children).find(
       (c: any) => c?.type?.displayName === 'Page' || c?.props?.size === 'A4'
     ) as any;
     assert.ok(page, 'Must contain A4 Page');

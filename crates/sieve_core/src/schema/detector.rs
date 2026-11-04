@@ -159,6 +159,12 @@ pub fn find_header_row_offset(bytes: &[u8]) -> usize {
         let has_metric = contains_ignore_case(line, b"clicks")
             || contains_ignore_case(line, b"cost")
             || contains_ignore_case(line, b"spend")
+            || contains_ignore_case(line, b"amount spent")
+            || contains_ignore_case(line, b"conversions")
+            || contains_ignore_case(line, b"orders")
+            || contains_ignore_case(line, b"7 day total orders")
+            || contains_ignore_case(line, b"impressions")
+            || contains_ignore_case(line, b"spend")
             || contains_ignore_case(line, b"impressions")
             || contains_ignore_case(line, b"conversions")
             || contains_ignore_case(line, b"all conv.")
@@ -283,6 +289,7 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
         if contains_ignore_case(field, b"customer search term")
             || contains_ignore_case(field, b"search query")
             || contains_ignore_case(field, b"search term")
+            || equals_ignore_case(field, b"query")
         {
             if query_priority <= 3 {
                 mapping.query_col = idx;
@@ -324,7 +331,9 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
         }
 
         // Cost / Spend column resolution: avoid Cost / conv, Cost per click, Avg CPC, etc.
-        let is_cost_candidate = (contains_ignore_case(field, b"cost") || contains_ignore_case(field, b"spend"))
+        let is_cost_candidate = (contains_ignore_case(field, b"cost")
+            || contains_ignore_case(field, b"spend")
+            || contains_ignore_case(field, b"amount spent"))
             && !contains_ignore_case(field, b"conv")
             && !contains_ignore_case(field, b"click")
             && !contains_ignore_case(field, b"cpc")
@@ -334,9 +343,15 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
             && !contains_ignore_case(field, b"margin");
 
         if is_cost_candidate {
-            let priority = if equals_ignore_case(field, b"cost") || equals_ignore_case(field, b"spend") {
+            let priority = if equals_ignore_case(field, b"cost")
+                || equals_ignore_case(field, b"spend")
+                || equals_ignore_case(field, b"amount spent")
+            {
                 3
-            } else if equals_ignore_case(field, b"total cost") || equals_ignore_case(field, b"total spend") {
+            } else if equals_ignore_case(field, b"total cost")
+                || equals_ignore_case(field, b"total spend")
+                || equals_ignore_case(field, b"total amount spent")
+            {
                 2
             } else {
                 1
@@ -349,6 +364,8 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
 
         // Conversions column resolution: avoid Cost / conv, Conv. value, Conversion rate, CPA, etc.
         let is_conv_candidate = (contains_ignore_case(field, b"conversions")
+            || contains_ignore_case(field, b"orders")
+            || contains_ignore_case(field, b"7 day total orders")
             || contains_ignore_case(field, b"all conv.")
             || contains_ignore_case(field, b"7 day total sales")
             || equals_ignore_case(field, b"conv.")
@@ -361,11 +378,15 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
 
         if is_conv_candidate {
             let priority = if equals_ignore_case(field, b"conversions")
+                || equals_ignore_case(field, b"orders")
+                || contains_ignore_case(field, b"7 day total orders")
                 || equals_ignore_case(field, b"all conv.")
                 || equals_ignore_case(field, b"7 day total sales")
             {
                 3
-            } else if equals_ignore_case(field, b"total conversions") {
+            } else if equals_ignore_case(field, b"total conversions")
+                || equals_ignore_case(field, b"total orders")
+            {
                 2
             } else {
                 1

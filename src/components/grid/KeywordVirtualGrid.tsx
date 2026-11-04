@@ -36,7 +36,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
     return filteredKeywords.filter(
       (k) =>
         k.keyword.toLowerCase().includes(term) ||
-        k.formattedRule.toLowerCase().includes(term)
+        (k.formattedRule ? k.formattedRule.toLowerCase().includes(term) : false)
     );
   }, [filteredKeywords, searchTerm]);
 
@@ -183,7 +183,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                     <button
                       type="button"
                       aria-label="Copy rule"
-                      onClick={(e) => handleCopyRule(kw.formattedRule, kw.sha256Hash, e)}
+                      onClick={(e) => handleCopyRule(kw.formattedRule || kw.keyword, kw.sha256Hash, e)}
                       className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all duration-150 ease-out active:scale-90 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 shrink-0"
                     >
                       {isCopied ? (

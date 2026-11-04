@@ -108,7 +108,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <span>Confidence Threshold</span>
             </label>
             <span className="font-mono tabular-nums text-indigo-400 font-semibold min-w-10 text-right">
-              {Math.round(thresholds.confidenceScore * 100)}%
+              {Math.round((thresholds.confidenceScore ?? 0.8) * 100)}%
             </span>
           </div>
           <input
@@ -118,7 +118,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             min="0.5"
             max="0.99"
             step="0.01"
-            value={thresholds.confidenceScore}
+            value={thresholds.confidenceScore ?? 0.8}
             onChange={handleConfidenceChange}
             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
@@ -141,7 +141,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <span>Max Marginal Waste</span>
             </label>
             <span className="font-mono tabular-nums text-rose-400 font-semibold min-w-16 text-right">
-              {formatCurrency(thresholds.maxMarginalWaste, currency, true)}
+              {formatCurrency(thresholds.maxMarginalWaste ?? 100000, currency, true)}
             </span>
           </div>
           <input
@@ -151,7 +151,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             min="50"
             max="10000"
             step="50"
-            value={thresholds.maxMarginalWaste}
+            value={thresholds.maxMarginalWaste ?? 100000}
             onChange={handleWasteChange}
             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-rose-500 outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />

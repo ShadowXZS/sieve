@@ -279,7 +279,7 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
         cpaReductionPercent: 16.67,
         roasLiftPercent: 20,
         efficiencyMultiplier: 1.2,
-      },
+      } as any,
     });
 
     const docJson = JSON.stringify(element);

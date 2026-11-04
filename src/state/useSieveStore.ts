@@ -23,10 +23,12 @@ export type { SupportedCurrency, FragmentedLongTailResult, MatchTypeDilutionResu
 export { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY };
 
 export interface SieveThresholds {
-  confidenceScore: number;
-  maxMarginalWaste: number;
+  confidenceScore?: number;
+  maxMarginalWaste?: number;
   minClicks: number;
   targetCPA: number;
+  minSpend?: number;
+  minConfidence?: number;
 }
 
 export interface KPISummary {
@@ -35,6 +37,7 @@ export interface KPISummary {
   collisionCount: number;
   avgConfidence: number;
   exactLockedCount: number;
+  processedRows?: number;
 }
 
 export interface SqlQueryResult {
@@ -54,11 +57,15 @@ export interface IngestedFileInfo {
 export interface SieveState {
   keywords: PersistedNegativeKeyword[];
   filteredKeywords: PersistedNegativeKeyword[];
+  records: PersistedNegativeKeyword[];
+  filteredRecords: PersistedNegativeKeyword[];
   thresholds: SieveThresholds;
   kpi: KPISummary;
+  summary: KPISummary;
   currency: SupportedCurrency;
   isCurrencyManual: boolean;
   isIngesting: boolean;
+  isLoading: boolean;
   ingestionProgress: number;
   ingestedFiles: IngestedFileInfo[];
   selectedKeyword: PersistedNegativeKeyword | null;
@@ -77,10 +84,23 @@ export interface SieveState {
   // Actions
   setFileLoaded: (loaded: boolean) => void;
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
+  setRecords: (records: PersistedNegativeKeyword[]) => void;
+  handleParseSuccess: (payload: {
+    records: PersistedNegativeKeyword[];
+    summary?: any;
+    currency?: SupportedCurrency;
+  }) => void;
+  onParseSuccess: (payload: {
+    records: PersistedNegativeKeyword[];
+    summary?: any;
+    currency?: SupportedCurrency;
+  }) => void;
+  clearDataset: () => void;
   updateThresholds: (partial: Partial<SieveThresholds>) => void;
   setCurrency: (currency: SupportedCurrency, isManual?: boolean) => void;
   autoDetectCurrency: (data: string | ArrayBuffer | Uint8Array) => SupportedCurrency | null;
   setIngesting: (isIngesting: boolean, progress?: number) => void;
+  setIsLoading: (isLoading: boolean) => void;
   setErrorMessage: (msg: string | null) => void;
   addIngestedFiles: (files: File[]) => void;
   setSelectedKeyword: (kw: PersistedNegativeKeyword | null) => void;
@@ -146,8 +166,8 @@ function filterAndComputeKPI(
   thresholds: SieveThresholds,
   currency: SupportedCurrency = DEFAULT_CURRENCY
 ): { filtered: PersistedNegativeKeyword[]; kpi: KPISummary } {
-  const minConfidence = thresholds.confidenceScore;
-  const maxWaste = thresholds.maxMarginalWaste;
+  const minConfidence = thresholds.confidenceScore ?? thresholds.minConfidence ?? 0.8;
+  const maxWaste = thresholds.maxMarginalWaste ?? 100000;
   const targetCPA = thresholds.targetCPA;
   const filtered: PersistedNegativeKeyword[] = [];
   const len = keywords.length;
@@ -164,7 +184,7 @@ function filterAndComputeKPI(
     } else if (currency === '¥' && typeof k.marginalWaste === 'number') {
       k.marginalWaste = Math.round(k.marginalWaste);
     }
-    if (k.confidenceScore >= minConfidence && k.marginalWaste <= maxWaste) {
+    if (k.confidenceScore >= minConfidence && (k.marginalWaste ?? 0) <= maxWaste) {
       filtered.push(k);
       totalWaste += k.marginalWaste || 0;
       totalConfidence += k.confidenceScore || 0;
@@ -201,11 +221,15 @@ const EMPTY_KPI: KPISummary = {
 export const useSieveStore = create<SieveState>((set, get) => ({
   keywords: [],
   filteredKeywords: [],
+  records: [],
+  filteredRecords: [],
   thresholds: { ...DEFAULT_THRESHOLDS },
   kpi: EMPTY_KPI,
+  summary: EMPTY_KPI,
   currency: DEFAULT_CURRENCY,
   isCurrencyManual: false,
   isIngesting: false,
+  isLoading: false,
   ingestionProgress: 0,
   ingestedFiles: [],
   selectedKeyword: null,
@@ -225,36 +249,155 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     set({ fileLoaded: loaded });
   },
 
+  handleParseSuccess: (payload: {
+    records: PersistedNegativeKeyword[];
+    summary?: any;
+    currency?: SupportedCurrency;
+  }) => {
+    const rawRecords = payload.records || [];
+    const currency = payload.currency || get().currency || DEFAULT_CURRENCY;
+    const targetCPA = get().thresholds.targetCPA;
+
+    const records = rawRecords.map((r, idx) => {
+      const q = r.keyword || (r as any).query || `term_${idx}`;
+      const clk = r.clicks ?? 0;
+      const cst = r.cost ?? 0;
+      const conv = r.conversions ?? 0;
+      const waste =
+        r.marginalWaste !== undefined
+          ? r.marginalWaste
+          : calculateMarginalWaste(cst, conv, targetCPA, 0, currency);
+      return {
+        ...r,
+        id: r.id || `kw_${idx}`,
+        keyword: q,
+        query: q,
+        clicks: clk,
+        cost: cst,
+        conversions: conv,
+        marginalWaste: waste,
+      };
+    });
+
+    let totalWaste = 0;
+    let totalConfidence = 0;
+    let collisionCount = 0;
+    let exactLockedCount = 0;
+
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      totalWaste += r.marginalWaste || 0;
+      totalConfidence += r.confidenceScore || 0;
+      if (r.hasCollision) collisionCount++;
+      if (r.matchType === 'exact') exactLockedCount++;
+    }
+
+    const roundedWaste =
+      currency === '¥' ? Math.round(totalWaste) : Math.round(totalWaste * 100) / 100;
+    const computedKPI: KPISummary = {
+      totalKeywords: records.length,
+      totalWaste: Number.isFinite(roundedWaste) ? roundedWaste : 0,
+      collisionCount,
+      avgConfidence:
+        records.length > 0 ? Math.round((totalConfidence / records.length) * 1000) / 1000 : 0,
+      exactLockedCount,
+    };
+
+    const finalKPI =
+      payload.summary && payload.summary.totalKeywords > 0
+        ? { ...computedKPI, ...payload.summary }
+        : computedKPI;
+
+    set({
+      records,
+      keywords: records,
+      filteredRecords: records, // prevent threshold zeroing
+      filteredKeywords: records, // prevent threshold zeroing
+      kpi: finalKPI,
+      summary: finalKPI,
+      currency,
+      fileLoaded: records.length > 0,
+      isLoading: false,
+      isIngesting: false,
+      errorMessage: null,
+    });
+  },
+
+  onParseSuccess: (payload) => {
+    get().handleParseSuccess(payload);
+  },
+
+  clearDataset: () => {
+    set({
+      fileLoaded: false,
+      records: [],
+      keywords: [],
+      filteredRecords: [],
+      filteredKeywords: [],
+      isLoading: false,
+      isIngesting: false,
+      kpi: { ...EMPTY_KPI },
+      summary: { ...EMPTY_KPI },
+      selectedKeyword: null,
+      errorMessage: null,
+      longTailResult: null,
+      dilutionResult: null,
+      ingestedFiles: [],
+      sqlQueryResult: null,
+      sqlQueryError: null,
+      isQueryRunning: false,
+    });
+  },
+
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
     const { thresholds, currency } = get();
     const { filtered, kpi } = filterAndComputeKPI(keywords, thresholds, currency);
     set({
+      records: keywords,
       keywords,
+      filteredRecords: filtered,
       filteredKeywords: filtered,
       kpi,
+      summary: kpi,
       fileLoaded: keywords.length > 0,
+      isLoading: false,
+      isIngesting: false,
     });
+  },
+
+  setRecords: (records: PersistedNegativeKeyword[]) => {
+    get().setKeywords(records);
+  },
+
+  setIsLoading: (isLoading: boolean) => {
+    set({ isLoading, isIngesting: isLoading });
   },
 
   updateThresholds: (partial: Partial<SieveThresholds>) => {
     const nextThresholds = { ...get().thresholds, ...partial };
-    const { keywords, currency } = get();
-    const { filtered, kpi } = filterAndComputeKPI(keywords, nextThresholds, currency);
+    const { records, keywords, currency } = get();
+    const source = records.length > 0 ? records : keywords;
+    const { filtered, kpi } = filterAndComputeKPI(source, nextThresholds, currency);
     set({
       thresholds: nextThresholds,
+      filteredRecords: filtered,
       filteredKeywords: filtered,
       kpi,
+      summary: kpi,
     });
   },
 
   setCurrency: (currency: SupportedCurrency, isManual: boolean = true) => {
-    const { keywords, thresholds } = get();
-    const { filtered, kpi } = filterAndComputeKPI(keywords, thresholds, currency);
+    const { records, keywords, thresholds } = get();
+    const source = records.length > 0 ? records : keywords;
+    const { filtered, kpi } = filterAndComputeKPI(source, thresholds, currency);
     set({
       currency,
       isCurrencyManual: isManual,
+      filteredRecords: filtered,
       filteredKeywords: filtered,
       kpi,
+      summary: kpi,
     });
   },
 
@@ -271,11 +414,11 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   },
 
   setIngesting: (isIngesting: boolean, progress: number = 0) => {
-    set({ isIngesting, ingestionProgress: progress });
+    set({ isIngesting, isLoading: isIngesting, ingestionProgress: progress });
   },
 
   setErrorMessage: (msg: string | null) => {
-    set({ errorMessage: msg, isIngesting: false });
+    set({ errorMessage: msg, isIngesting: false, isLoading: false });
   },
 
   addIngestedFiles: (files: File[]) => {
@@ -340,27 +483,30 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   },
 
   reset: () => {
+    get().clearDataset();
     set({
-      keywords: [],
-      filteredKeywords: [],
       thresholds: { ...DEFAULT_THRESHOLDS },
-      kpi: EMPTY_KPI,
       currency: DEFAULT_CURRENCY,
       isCurrencyManual: false,
-      isIngesting: false,
-      ingestionProgress: 0,
-      ingestedFiles: [],
-      selectedKeyword: null,
-      errorMessage: null,
-      longTailResult: null,
-      dilutionResult: null,
       isAnalyticalDrawerOpen: false,
       activeAnalyticalTab: 'long-tail',
       isPowerQueryOpen: false,
-      sqlQueryResult: null,
-      isQueryRunning: false,
-      sqlQueryError: null,
-      fileLoaded: false,
+      powerQuerySql:
+        'SELECT query, campaign, clicks, cost, conversions FROM search_terms ORDER BY cost DESC LIMIT 20;',
     });
   },
 }));
+
+// Auto-subscribe to window message events for PARSE_SUCCESS and PARSE_ERROR
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (event.data && typeof event.data === 'object') {
+      if (event.data.type === 'PARSE_SUCCESS' && event.data.payload) {
+        useSieveStore.getState().handleParseSuccess(event.data.payload);
+      } else if (event.data.type === 'PARSE_ERROR') {
+        const msg = event.data.payload?.message || 'CSV parse error';
+        useSieveStore.getState().setErrorMessage(msg);
+      }
+    }
+  });
+}

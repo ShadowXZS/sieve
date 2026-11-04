@@ -185,14 +185,14 @@ export function convertWasmMemoryToArrowBatch(
   for (let i = 0; i < schema.fields.length; i++) {
     vectors.push(table.getChildAt(i)!);
   }
-  return new arrow.RecordBatch(schema, {
-    length: table.numRows,
-    data: arrow.makeData({
+  return new arrow.RecordBatch(
+    schema,
+    arrow.makeData({
       type: new arrow.Struct(schema.fields),
       length: table.numRows,
       children: vectors.map((v) => v.data[0]),
-    }),
-  });
+    }) as any
+  );
 }
 
 /**
