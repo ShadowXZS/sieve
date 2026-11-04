@@ -419,3 +419,70 @@ test('Zero layout shifts (CLS = 0) during rapid slider manipulations and dataset
   });
   assert.strictEqual(gridWrapper.offsetHeight, initialHeight, 'Height must remain invariant across slider adjustments (CLS = 0)');
 });
+
+test('ExportModal mounts on action button trigger, switches format tabs, and handles Escape dismissal', async () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  const mockKeywords: PersistedNegativeKeyword[] = [
+    {
+      sha256Hash: 'hash_exp_1',
+      keyword: 'free crack download',
+      matchType: 'exact',
+      formattedRule: '[free crack download]',
+      platform: 1,
+      confidenceScore: 0.95,
+      marginalWaste: 150,
+      hasCollision: true,
+      collidingSafeTerms: ['converting safe term'],
+      createdAt: Date.now(),
+      scope: { campaign: 'Search_Campaign_A', adGroup: 'AdGroup_1' },
+    },
+  ];
+  useSieveStore.getState().setKeywords(mockKeywords);
+
+  render(
+    <div style={{ height: '600px', width: '1000px' }}>
+      <KeywordVirtualGrid />
+    </div>
+  );
+
+  // Initial state: Modal should not be in DOM
+  assert.strictEqual(screen.queryByRole('dialog'), null);
+
+  // Click "Export Negative Rules" button
+  const exportBtn = screen.getByRole('button', { name: /export negative rules/i });
+  await act(async () => {
+    fireEvent.click(exportBtn);
+  });
+
+  // Modal dialog is now visible
+  const dialog = screen.getByRole('dialog');
+  assert.ok(dialog, 'Export dialog must mount');
+  assert.ok(screen.getByText(/Export Negative Keyword Rules/i));
+
+  // Check default format is Google Ads Editor TSV
+  assert.ok(dialog.textContent?.includes('Campaign\tAd Group\tKeyword Text\tCriterion Type'));
+
+  // Switch to Amazon PPC CSV format
+  const amazonTab = screen.getByRole('button', { name: /Amazon PPC/i });
+  await act(async () => {
+    fireEvent.click(amazonTab);
+  });
+  assert.ok(dialog.textContent?.includes('Campaign Name,Ad Group Name,Keyword Text,Match Type,State'));
+
+  // Switch to Google Script format
+  const scriptTab = screen.getByRole('button', { name: /Google Script/i });
+  await act(async () => {
+    fireEvent.click(scriptTab);
+  });
+  assert.ok(dialog.textContent?.includes('function main()'));
+
+  // Dismiss via Escape key
+  await act(async () => {
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+  });
+
+  assert.strictEqual(screen.queryByRole('dialog'), null, 'Modal must close on Escape key');
+});
+

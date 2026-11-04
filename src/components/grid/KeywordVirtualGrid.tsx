@@ -10,8 +10,10 @@ import React, { useRef, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { CollisionBadge } from '../badges/CollisionBadge.tsx';
+import { ExportModal } from '../export/ExportModal.tsx';
+import { copyToClipboard } from '../../formatters/clipboard.ts';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
-import { Search, Copy, Check, ArrowUpDown } from 'lucide-react';
+import { Search, Copy, Check, Download } from 'lucide-react';
 
 export interface KeywordVirtualGridProps {
   className?: string;
@@ -22,6 +24,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
   const parentRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Fast client search query filter
   const displayedItems = useMemo(() => {
@@ -44,9 +47,9 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
 
   const virtualItems = rowVirtualizer.getVirtualItems();
 
-  const handleCopyRule = (rule: string, hash: string, e: React.MouseEvent) => {
+  const handleCopyRule = async (rule: string, hash: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(rule);
+    await copyToClipboard(rule);
     setCopiedHash(hash);
     setTimeout(() => setCopiedHash(null), 1500);
   };
@@ -89,25 +92,11 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              const allRules = displayedItems.map((k) => k.formattedRule).join('\n');
-              navigator.clipboard?.writeText(allRules);
-              setCopiedHash('ALL');
-              setTimeout(() => setCopiedHash(null), 2000);
-            }}
+            onClick={() => setIsExportModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
           >
-            {copiedHash === 'ALL' ? (
-              <>
-                <Check className="w-3.5 h-3.5" />
-                Copied {displayedItems.length} Rules
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                Export Negative Rules
-              </>
-            )}
+            <Download className="w-3.5 h-3.5" />
+            Export Negative Rules
           </button>
         </div>
       </div>
@@ -234,6 +223,13 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
           </div>
         )}
       </div>
+
+      {/* Multi-Platform Export Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        keywords={displayedItems}
+      />
     </div>
   );
 };

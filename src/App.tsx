@@ -76,7 +76,7 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-2">
               <span className="font-bold tracking-tight text-zinc-100 text-sm">SIEVE</span>
               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700">
-                Phase 4
+                Phase 5
               </span>
             </div>
             <p className="text-[10px] text-zinc-400 font-mono">
