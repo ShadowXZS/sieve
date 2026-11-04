@@ -10,7 +10,7 @@ use core::fmt::Write;
 use hashbrown::HashMap;
 
 use crate::schema::detector::{
-    detect_platform_schema, parse_localized_number, resolve_schema_mapping,
+    contains_ignore_case, detect_platform_schema, parse_localized_number, resolve_schema_mapping,
     starts_with_ignore_case, PlatformSchema, SchemaMapping,
 };
 use crate::tokenizer::ngram::tokenize_ngrams;
@@ -106,11 +106,22 @@ impl NGramAggregator {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct QueryAuctionRecord {
+    pub campaign: Box<[u8]>,
+    pub adgroup: Box<[u8]>,
+    pub clicks: u64,
+    pub cost: f64,
+    pub conversions: f64,
+    pub is_pmax: bool,
+}
+
 pub struct SieveEngine {
     pub schema_mapping: SchemaMapping,
     pub delimiter: u8,
     pub aggregator: NGramAggregator,
     pub header_parsed: bool,
+    pub query_auction_map: HashMap<Box<[u8]>, Vec<QueryAuctionRecord>>,
     // Consecutive repeated query acceleration cache
     last_query_buf: [u8; 128],
     last_query_len: usize,
@@ -131,6 +142,7 @@ impl SieveEngine {
             delimiter: b',',
             aggregator: NGramAggregator::new(),
             header_parsed: false,
+            query_auction_map: HashMap::new(),
             last_query_buf: [0u8; 128],
             last_query_len: 0,
             cached_entry_ptrs: [core::ptr::null_mut(); 32],
@@ -143,6 +155,7 @@ impl SieveEngine {
         self.delimiter = b',';
         self.aggregator.reset();
         self.header_parsed = false;
+        self.query_auction_map.clear();
         self.last_query_len = 0;
         self.cached_entries_count = 0;
     }
@@ -259,6 +272,35 @@ impl SieveEngine {
                         self.aggregator.record_query_row(clicks, cost, conversions);
                         let clicks_u64 = clicks as u64;
 
+                        if mapping.has_campaign {
+                            let campaign_field = if mapping.campaign_col < count {
+                                trim_quotes(fields[mapping.campaign_col])
+                            } else {
+                                &[]
+                            };
+
+                            let adgroup_field = if mapping.has_adgroup && mapping.adgroup_col < count {
+                                trim_quotes(fields[mapping.adgroup_col])
+                            } else {
+                                &[]
+                            };
+
+                            let is_pmax = contains_ignore_case(campaign_field, b"pmax")
+                                || contains_ignore_case(campaign_field, b"performance max");
+
+                            self.query_auction_map
+                                .entry(Box::from(query_field))
+                                .or_default()
+                                .push(QueryAuctionRecord {
+                                    campaign: Box::from(campaign_field),
+                                    adgroup: Box::from(adgroup_field),
+                                    clicks: clicks_u64,
+                                    cost,
+                                    conversions,
+                                    is_pmax,
+                                });
+                        }
+
                         // Check if current query matches the cached consecutive query
                         let is_same_query = self.last_query_len > 0
                             && self.last_query_len == query_field.len()
@@ -372,6 +414,154 @@ impl SieveEngine {
         out[3] = summary_cost;
         out[4] = aggregated_cost;
         out[5] = gap_cost;
+    }
+
+    /// Isolates identical queries mapped across competing AdGroup and Campaign IDs.
+    pub fn detect_auction_collisions(&self, output: &mut [u8]) -> usize {
+        struct Cursor<'a> {
+            buf: &'a mut [u8],
+            pos: usize,
+        }
+
+        impl<'a> Write for Cursor<'a> {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let remaining = self.buf.len().saturating_sub(self.pos);
+                let to_copy = bytes.len().min(remaining);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut cursor = Cursor {
+            buf: output,
+            pos: 0,
+        };
+        let _ = cursor.write_str("[");
+        let mut first = true;
+
+        for (query, records) in &self.query_auction_map {
+            let mut unique_campaigns: Vec<&[u8]> = Vec::with_capacity(records.len());
+            let mut total_clicks = 0u64;
+            let mut total_cost = 0.0f64;
+
+            for r in records {
+                total_clicks += r.clicks;
+                total_cost += r.cost;
+                if !unique_campaigns.contains(&r.campaign.as_ref()) {
+                    unique_campaigns.push(&r.campaign);
+                }
+            }
+
+            if unique_campaigns.len() > 1 {
+                if !first {
+                    let _ = cursor.write_str(",");
+                }
+                first = false;
+
+                let query_str = core::str::from_utf8(query).unwrap_or("");
+                let _ = write!(
+                    cursor,
+                    r#"{{"query":"{}","competing_campaigns_count":{},"campaigns":["#,
+                    query_str,
+                    unique_campaigns.len()
+                );
+
+                for (idx, &c) in unique_campaigns.iter().enumerate() {
+                    if idx > 0 {
+                        let _ = cursor.write_str(",");
+                    }
+                    let c_str = core::str::from_utf8(c).unwrap_or("");
+                    let _ = write!(cursor, r#""{}""#, c_str);
+                }
+
+                let _ = write!(
+                    cursor,
+                    r#"],"total_clicks":{},"total_cost":{:.2}}}"#,
+                    total_clicks, total_cost
+                );
+            }
+        }
+
+        let _ = cursor.write_str("]");
+        cursor.pos
+    }
+
+    /// Isolates queries with higher CPC and lower conversions under PMax compared to Search.
+    pub fn detect_pmax_cannibalization(&self, output: &mut [u8]) -> usize {
+        struct Cursor<'a> {
+            buf: &'a mut [u8],
+            pos: usize,
+        }
+
+        impl<'a> Write for Cursor<'a> {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let remaining = self.buf.len().saturating_sub(self.pos);
+                let to_copy = bytes.len().min(remaining);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut cursor = Cursor {
+            buf: output,
+            pos: 0,
+        };
+        let _ = cursor.write_str("[");
+        let mut first = true;
+
+        for (query, records) in &self.query_auction_map {
+            let mut search_clicks = 0u64;
+            let mut search_cost = 0.0f64;
+            let mut search_conv = 0.0f64;
+
+            let mut pmax_clicks = 0u64;
+            let mut pmax_cost = 0.0f64;
+            let mut pmax_conv = 0.0f64;
+
+            for r in records {
+                if r.is_pmax {
+                    pmax_clicks += r.clicks;
+                    pmax_cost += r.cost;
+                    pmax_conv += r.conversions;
+                } else {
+                    search_clicks += r.clicks;
+                    search_cost += r.cost;
+                    search_conv += r.conversions;
+                }
+            }
+
+            if search_clicks > 0 && pmax_clicks > 0 {
+                let search_cpc = search_cost / search_clicks as f64;
+                let pmax_cpc = pmax_cost / pmax_clicks as f64;
+
+                if pmax_cpc > search_cpc && pmax_conv < search_conv {
+                    if !first {
+                        let _ = cursor.write_str(",");
+                    }
+                    first = false;
+
+                    let query_str = core::str::from_utf8(query).unwrap_or("");
+                    let cpc_inflation = if search_cpc > 0.0 {
+                        pmax_cpc / search_cpc
+                    } else {
+                        0.0
+                    };
+
+                    let _ = write!(
+                        cursor,
+                        r#"{{"query":"{}","search_cpc":{:.2},"pmax_cpc":{:.2},"search_conversions":{:.0},"pmax_conversions":{:.0},"cpc_inflation_ratio":{:.2}}}"#,
+                        query_str, search_cpc, pmax_cpc, search_conv, pmax_conv, cpc_inflation
+                    );
+                }
+            }
+        }
+
+        let _ = cursor.write_str("]");
+        cursor.pos
     }
 }
 

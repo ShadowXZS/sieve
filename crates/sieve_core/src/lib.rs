@@ -11,7 +11,11 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub mod engine;
+pub mod guard;
+pub mod linguistics;
+pub mod matrix;
 pub mod schema;
+pub mod stats;
 pub mod tokenizer;
 
 use core::alloc::Layout;
@@ -20,7 +24,11 @@ use std::alloc::{alloc as sys_alloc, dealloc as sys_dealloc};
 use wasm_bindgen::prelude::*;
 
 pub use engine::{MetricAggregate, NGramAggregator, RadixTrie, SieveEngine};
+pub use guard::{CollisionGuard, SafeListIndex};
+pub use linguistics::{cluster_tokens, damerau_levenshtein, export_clusters_json, phonetic_code};
+pub use matrix::evaluate_combinatorial_variations;
 pub use schema::{detect_platform_schema, parse_localized_number, PlatformSchema, SchemaMapping};
+pub use stats::{beta_cdf, calculate_beta_posterior, calculate_cpa_drag, calculate_wilson_score};
 pub use tokenizer::tokenize_ngrams;
 
 // -----------------------------------------------------------------------------
@@ -184,6 +192,263 @@ pub extern "C" fn engine_get_reporting_gap(
     }
 
     0
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_detect_auction_collisions(
+    ptr: *mut SieveEngine,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.detect_auction_collisions(out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_detect_pmax_cannibalization(
+    ptr: *mut SieveEngine,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.detect_pmax_cannibalization(out)
+}
+
+// -----------------------------------------------------------------------------
+// Statistical Confidence & CPA Drag ABI
+// -----------------------------------------------------------------------------
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn stats_calculate_wilson_score(
+    trials: u64,
+    successes: u64,
+    z: f64,
+    out_ptr: *mut f64,
+) -> i32 {
+    if out_ptr.is_null() {
+        return -1;
+    }
+    let (lower, upper) = calculate_wilson_score(trials, successes, z);
+    unsafe {
+        *out_ptr = lower;
+        *out_ptr.add(1) = upper;
+    }
+    0
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn stats_calculate_beta_posterior(
+    trials: u64,
+    successes: u64,
+    prior_alpha: f64,
+    prior_beta: f64,
+    out_ptr: *mut f64,
+) -> i32 {
+    if out_ptr.is_null() {
+        return -1;
+    }
+    let (post_alpha, post_beta, mean, var) =
+        calculate_beta_posterior(trials, successes, prior_alpha, prior_beta);
+    unsafe {
+        *out_ptr = post_alpha;
+        *out_ptr.add(1) = post_beta;
+        *out_ptr.add(2) = mean;
+        *out_ptr.add(3) = var;
+    }
+    0
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn stats_beta_cdf(a: f64, b: f64, x: f64) -> f64 {
+    beta_cdf(a, b, x)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn stats_calculate_cpa_drag(
+    cost: f64,
+    conversions: f64,
+    target_cpa: f64,
+    out_ptr: *mut f64,
+) -> i32 {
+    if out_ptr.is_null() {
+        return -1;
+    }
+    let (realized_cpa, marginal_drag, waste_ratio) =
+        calculate_cpa_drag(cost, conversions, target_cpa);
+    unsafe {
+        *out_ptr = realized_cpa;
+        *out_ptr.add(1) = marginal_drag;
+        *out_ptr.add(2) = waste_ratio;
+    }
+    0
+}
+
+// -----------------------------------------------------------------------------
+// Safe-List Inversion & Collision Guard ABI
+// -----------------------------------------------------------------------------
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn guard_new() -> *mut CollisionGuard {
+    Box::into_raw(Box::new(CollisionGuard::new()))
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn guard_free(ptr: *mut CollisionGuard) {
+    if !ptr.is_null() {
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
+    }
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn guard_add_safe_term(
+    ptr: *mut CollisionGuard,
+    term_ptr: *const u8,
+    term_len: usize,
+    conversions: f64,
+) -> i32 {
+    let guard = match unsafe { ptr.as_mut() } {
+        Some(g) => g,
+        None => return -1,
+    };
+    if term_ptr.is_null() || term_len == 0 {
+        return -1;
+    }
+    let term = unsafe { core::slice::from_raw_parts(term_ptr, term_len) };
+    guard.add_safe_term(term, conversions);
+    0
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn guard_evaluate_negative(
+    ptr: *mut CollisionGuard,
+    cand_ptr: *const u8,
+    cand_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let guard = match unsafe { ptr.as_mut() } {
+        Some(g) => g,
+        None => return 0,
+    };
+    if cand_ptr.is_null() || cand_len == 0 || out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let candidate = unsafe { core::slice::from_raw_parts(cand_ptr, cand_len) };
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    guard.evaluate_negative_json(candidate, out)
+}
+
+// -----------------------------------------------------------------------------
+// Linguistics: Damerau-Levenshtein, Phonetic & Clustering ABI
+// -----------------------------------------------------------------------------
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn linguistics_damerau_levenshtein(
+    s1_ptr: *const u8,
+    s1_len: usize,
+    s2_ptr: *const u8,
+    s2_len: usize,
+    max_distance: u32,
+) -> u32 {
+    let s1 = if s1_ptr.is_null() || s1_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(s1_ptr, s1_len) }
+    };
+    let s2 = if s2_ptr.is_null() || s2_len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(s2_ptr, s2_len) }
+    };
+    damerau_levenshtein(s1, s2, max_distance)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn linguistics_phonetic_code(
+    src_ptr: *const u8,
+    src_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    if src_ptr.is_null() || src_len == 0 || out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let src = unsafe { core::slice::from_raw_parts(src_ptr, src_len) };
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    phonetic_code(src, out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn linguistics_cluster_tokens(
+    json_ptr: *const u8,
+    json_len: usize,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    if json_ptr.is_null() || json_len == 0 || out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let json_bytes = unsafe { core::slice::from_raw_parts(json_ptr, json_len) };
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+
+    let mut tokens: Vec<&[u8]> = Vec::new();
+    let mut in_str = false;
+    let mut start = 0;
+    for (i, &b) in json_bytes.iter().enumerate() {
+        if b == b'"' {
+            if in_str {
+                tokens.push(&json_bytes[start..i]);
+                in_str = false;
+            } else {
+                in_str = true;
+                start = i + 1;
+            }
+        }
+    }
+
+    let clusters = cluster_tokens(&tokens);
+    export_clusters_json(&clusters, out)
+}
+
+// -----------------------------------------------------------------------------
+// Combinatorial Matrix Scale Benchmark ABI
+// -----------------------------------------------------------------------------
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn matrix_evaluate_combinatorial_scale(variations_count: usize) -> u32 {
+    let tokens: &[&[u8]] = &[b"shoes", b"running", b"sneakers", b"boots", b"trail"];
+    let (matches, _sum) = evaluate_combinatorial_variations(tokens, variations_count);
+    matches as u32
 }
 
 // -----------------------------------------------------------------------------

@@ -21,6 +21,10 @@ pub struct SchemaMapping {
     pub clicks_col: usize,
     pub cost_col: usize,
     pub conversions_col: usize,
+    pub campaign_col: usize,
+    pub adgroup_col: usize,
+    pub has_campaign: bool,
+    pub has_adgroup: bool,
 }
 
 impl Default for SchemaMapping {
@@ -31,6 +35,10 @@ impl Default for SchemaMapping {
             clicks_col: 1,
             cost_col: 2,
             conversions_col: 3,
+            campaign_col: usize::MAX,
+            adgroup_col: usize::MAX,
+            has_campaign: false,
+            has_adgroup: false,
         }
     }
 }
@@ -148,6 +156,15 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
             || contains_ignore_case(field, b"7 day total sales")
         {
             mapping.conversions_col = idx;
+        } else if contains_ignore_case(field, b"campaign") {
+            mapping.campaign_col = idx;
+            mapping.has_campaign = true;
+        } else if contains_ignore_case(field, b"ad group")
+            || contains_ignore_case(field, b"adgroup")
+            || contains_ignore_case(field, b"asset group")
+        {
+            mapping.adgroup_col = idx;
+            mapping.has_adgroup = true;
         }
     }
 
