@@ -11,7 +11,7 @@ import type { SupportedCurrency } from './currency.ts';
 /**
  * Strips symbols ($, ₹, €, ¥, £) and commas before converting cost/clicks/conversions to numbers.
  */
-export function cleanNumeric(val: any): number {
+export function cleanNumeric(val: unknown): number {
   if (typeof val === 'number') {
     return Number.isFinite(val) ? val : 0;
   }

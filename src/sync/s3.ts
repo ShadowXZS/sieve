@@ -33,13 +33,13 @@ async function sha256Hex(data: string | Uint8Array): Promise<string> {
 async function hmacSha256(key: Uint8Array, message: string | Uint8Array): Promise<Uint8Array> {
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key as any,
+    key as unknown as BufferSource,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
   const msgBytes = typeof message === 'string' ? new TextEncoder().encode(message) : message;
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, msgBytes as any);
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, msgBytes as unknown as BufferSource);
   return new Uint8Array(signature);
 }
 
@@ -137,11 +137,13 @@ export async function computeAwsSigV4Headers(
 
 /**
  * Directly uploads an encrypted vault payload to S3 from the browser client.
+ * Enforces strict request timeout to prevent hanging connections.
  */
 export async function uploadVaultToS3(
   config: S3SyncConfig,
   payload: Uint8Array,
-  filename: string
+  filename: string,
+  timeoutMs: number = 15000
 ): Promise<S3UploadResult> {
   const cleanPrefix = config.prefix ? config.prefix.replace(/^\/+|\/+$/g, '') : '';
   const keyPath = cleanPrefix ? `${cleanPrefix}/${filename}` : filename;
@@ -152,22 +154,35 @@ export async function uploadVaultToS3(
 
   const headers = await computeAwsSigV4Headers(config, filename, payload);
 
-  const response = await fetch(endpointUrl, {
-    method: 'PUT',
-    headers,
-    body: payload as any,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    throw new Error(`S3 upload failed with HTTP ${response.status}: ${response.statusText}`);
+  try {
+    const response = await fetch(endpointUrl, {
+      method: 'PUT',
+      headers,
+      body: payload as unknown as BodyInit,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`S3 upload failed with HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return {
+      success: true,
+      status: response.status,
+      url: endpointUrl,
+      etag: response.headers?.get('ETag') || undefined,
+      timestamp: Date.now(),
+    };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`S3 upload timed out after ${timeoutMs}ms: request aborted`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return {
-    success: true,
-    status: response.status,
-    url: endpointUrl,
-    etag: response.headers?.get('ETag') || undefined,
-    timestamp: Date.now(),
-  };
 }
 

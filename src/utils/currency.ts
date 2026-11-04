@@ -9,6 +9,8 @@
  * 4. Mathematical safety: Zero division-by-zero, Zero NaN, Zero Infinity.
  */
 
+import { logger } from './logger.ts';
+
 export type SupportedCurrency = '$' | '₹' | '€' | '¥' | '£';
 
 export const SUPPORTED_CURRENCIES: readonly SupportedCurrency[] = ['$', '₹', '€', '¥', '£'] as const;
@@ -105,7 +107,8 @@ export function detectCurrencyFromData(
     const slice = bytes.subarray(0, Math.min(bytes.length, 32768));
     try {
       text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-    } catch {
+    } catch (err) {
+      logger.debug('Currency data decode notice:', err);
       return null;
     }
   }

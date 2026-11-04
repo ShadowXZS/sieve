@@ -118,11 +118,12 @@ test('Phase 7 Brand Integration: Modal dialog headers embed /sieve.svg vector br
     },
   ];
 
-  // 1. ExportModal header brand integration
+  // 1. ExportModal header brand integration (portaled to document.body)
   const { container: exportContainer, unmount: unmountExport } = render(
     <ExportModal isOpen={true} onClose={() => {}} keywords={mockKeywords} />
   );
-  const exportLogo = exportContainer.querySelector('[data-testid="export-modal-logo"]') as HTMLImageElement;
+  const exportLogo = (exportContainer.querySelector('[data-testid="export-modal-logo"]') ||
+    document.body.querySelector('[data-testid="export-modal-logo"]')) as HTMLImageElement;
   assert.ok(exportLogo, 'ExportModal header must feature /sieve.svg brand asset');
   assert.strictEqual(exportLogo.getAttribute('src'), '/sieve.svg');
   unmountExport();

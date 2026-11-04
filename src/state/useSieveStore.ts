@@ -42,7 +42,7 @@ export interface KPISummary {
 
 export interface SqlQueryResult {
   columns: string[];
-  rows: Array<Record<string, any>>;
+  rows: Array<Record<string, unknown>>;
   rowCount: number;
   executionTimeMs: number;
   query: string;
@@ -87,12 +87,12 @@ export interface SieveState {
   setRecords: (records: PersistedNegativeKeyword[]) => void;
   handleParseSuccess: (payload: {
     records: PersistedNegativeKeyword[];
-    summary?: any;
+    summary?: Partial<KPISummary>;
     currency?: SupportedCurrency;
   }) => void;
   onParseSuccess: (payload: {
     records: PersistedNegativeKeyword[];
-    summary?: any;
+    summary?: Partial<KPISummary>;
     currency?: SupportedCurrency;
   }) => void;
   clearDataset: () => void;
@@ -251,7 +251,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
 
   handleParseSuccess: (payload: {
     records: PersistedNegativeKeyword[];
-    summary?: any;
+    summary?: Partial<KPISummary>;
     currency?: SupportedCurrency;
   }) => {
     const rawRecords = payload.records || [];
@@ -259,7 +259,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     const targetCPA = get().thresholds.targetCPA;
 
     const records = rawRecords.map((r, idx) => {
-      const q = r.keyword || (r as any).query || `term_${idx}`;
+      const q = r.keyword || (r as { query?: string }).query || `term_${idx}`;
       const clk = r.clicks ?? 0;
       const cst = r.cost ?? 0;
       const conv = r.conversions ?? 0;
@@ -304,7 +304,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     };
 
     const finalKPI =
-      payload.summary && payload.summary.totalKeywords > 0
+      payload.summary && (payload.summary.totalKeywords ?? 0) > 0
         ? { ...computedKPI, ...payload.summary }
         : computedKPI;
 

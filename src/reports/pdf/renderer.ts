@@ -8,12 +8,13 @@
 import React from 'react';
 import { pdf, type DocumentProps } from '@react-pdf/renderer';
 import { registerPdfFonts } from './fonts/index.ts';
+import { logger } from '../../utils/logger.ts';
 
 /**
  * Compiles a React PDF document element tree into an in-memory PDF Blob.
  */
 export async function generatePdfBlob(
-  document: React.ReactElement<DocumentProps> | React.ReactElement<any>
+  document: React.ReactElement<DocumentProps> | React.ReactElement<unknown>
 ): Promise<Blob> {
   registerPdfFonts();
   const instance = pdf(document as React.ReactElement<DocumentProps>);
@@ -31,7 +32,8 @@ export async function verifyPdfSignature(blob: Blob): Promise<boolean> {
     const bytes = new Uint8Array(arrayBuffer.slice(0, 5));
     const signature = String.fromCharCode(...bytes);
     return signature === '%PDF-';
-  } catch {
+  } catch (err) {
+    logger.debug('verifyPdfSignature check notice:', err);
     return false;
   }
 }

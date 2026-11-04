@@ -11,6 +11,7 @@ import { Sliders, Percent, Target, MousePointerClick } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { formatCurrency } from '../../utils/currency.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
+import { logger } from '../../utils/logger.ts';
 
 export interface ThresholdControlsProps {
   workerPool?: SieveWorkerPool;
@@ -22,7 +23,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
   className = '',
 }) => {
   const { thresholds, updateThresholds, currency } = useSieveStore();
-  const rafId = useRef<number | null>(null);
+  const rafId = useRef<number | ReturnType<typeof setTimeout> | null>(null);
 
   const dispatchWorkerRecalculation = useCallback(
     (confidence: number) => {
@@ -39,8 +40,8 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
           priorBeta: 10.0,
           thresholdRate: confidence,
         })
-        .catch(() => {
-          // Worker communication error boundary
+        .catch((err) => {
+          logger.debug('Threshold recalculation worker dispatch notice:', err);
         });
     },
     [workerPool]
@@ -50,15 +51,19 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
     const val = parseFloat(e.target.value);
 
     // Cancel existing scheduled frame
-    if (rafId.current !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(rafId.current);
+    if (rafId.current !== null) {
+      if (typeof cancelAnimationFrame !== 'undefined' && typeof rafId.current === 'number') {
+        cancelAnimationFrame(rafId.current);
+      } else {
+        clearTimeout(rafId.current as ReturnType<typeof setTimeout>);
+      }
     }
 
     const scheduleFn = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : setTimeout;
     rafId.current = scheduleFn(() => {
       updateThresholds({ confidenceScore: val });
       dispatchWorkerRecalculation(val);
-    }) as any;
+    });
   };
 
   const handleWasteChange = (e: React.ChangeEvent<HTMLInputElement>) => {

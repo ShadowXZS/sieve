@@ -80,8 +80,13 @@ const PRESET_QUERIES: PresetQuery[] = [
 /**
  * Formats raw DuckDB exceptions into user-friendly console error messages.
  */
-export function formatDuckDBError(error: any): { title: string; message: string } {
-  const raw = typeof error === 'string' ? error : error?.message || String(error);
+export function formatDuckDBError(error: unknown): { title: string; message: string } {
+  const raw =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? '');
 
   if (raw.startsWith('{') && raw.endsWith('}')) {
     try {
@@ -184,8 +189,9 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({
         executionTimeMs: res.executionTimeMs,
         query: trimmed,
       });
-    } catch (err: any) {
-      setSqlQueryError(err?.message || 'DuckDB execution failed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'DuckDB execution failed';
+      setSqlQueryError(msg);
     } finally {
       setIsQueryRunning(false);
     }

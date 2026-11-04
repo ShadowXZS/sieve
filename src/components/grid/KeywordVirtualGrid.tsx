@@ -11,7 +11,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { formatCurrency } from '../../utils/currency.ts';
 import { CollisionBadge } from '../badges/CollisionBadge.tsx';
-import { ExportModal } from '../export/ExportModal.tsx';
+import { ExportDefModal } from '../export/ExportDefModal.tsx';
 import { ReportConfigModal } from '../reports/ReportConfigModal.tsx';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
@@ -238,7 +238,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
       </div>
 
       {/* Multi-Platform Export Modal */}
-      <ExportModal
+      <ExportDefModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         keywords={displayedItems}

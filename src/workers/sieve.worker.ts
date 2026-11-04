@@ -20,6 +20,7 @@ import type {
 import * as duckdb from '@duckdb/duckdb-wasm/blocking';
 import * as arrow from 'apache-arrow';
 import { parseCsvTextToRecords, detectCurrencySymbol } from '../utils/csvParser.ts';
+import { logger } from '../utils/logger.ts';
 
 export class SieveWorkerCore {
   private instance: WebAssembly.Instance | null = null;
@@ -202,7 +203,7 @@ export class SieveWorkerCore {
 
         this.isDuckDbInitialized = true;
       } catch (err) {
-        console.error('Failed to initialize DuckDB-Wasm inside worker:', err);
+        logger.error('Failed to initialize DuckDB-Wasm inside worker:', err);
         throw err;
       } finally {
         this.duckDbInitPromise = null;
@@ -216,13 +217,17 @@ export class SieveWorkerCore {
     if (this.duckdbConn) {
       try {
         this.duckdbConn.close();
-      } catch {}
+      } catch (connCloseErr) {
+        logger.debug('Worker DuckDB connection close warning:', connCloseErr);
+      }
       this.duckdbConn = null;
     }
     if (this.duckdb) {
       try {
         this.duckdb.terminate?.();
-      } catch {}
+      } catch (termErr) {
+        logger.debug('Worker DuckDB terminate warning:', termErr);
+      }
       this.duckdb = null;
     }
     this.isDuckDbInitialized = false;
@@ -464,13 +469,15 @@ export class SieveWorkerCore {
                           if (this.duckdbConn) {
                             try {
                               this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
-                            } catch {}
+                            } catch (dropErr) {
+                              logger.debug('Worker search_terms drop notice:', dropErr);
+                            }
                             this.duckdbConn.insertArrowFromIPCStream(ipcBuffer, {
                               name: 'search_terms',
                             });
                           }
                         } catch (duckErr) {
-                          console.error('Failed to register Arrow IPC stream into DuckDB-Wasm:', duckErr);
+                          logger.error('Failed to register Arrow IPC stream into DuckDB-Wasm:', duckErr);
                         }
 
                         // Build persisted keywords directly from columnar slices without JSON.parse
@@ -632,7 +639,7 @@ export class SieveWorkerCore {
                     }
                   }
                 } catch (e) {
-                  console.error('Failed to export query records:', e);
+                  logger.error('Failed to export query records:', e);
                 } finally {
                   this.exports.deallocate_buffer(outPtr, outCap);
                 }
@@ -647,7 +654,7 @@ export class SieveWorkerCore {
                     extractedKeywords = parsed.records;
                   }
                 } catch (fallbackErr) {
-                  console.error('Fallback TS CSV parser error:', fallbackErr);
+                  logger.error('Fallback TS CSV parser error:', fallbackErr);
                 }
               }
 

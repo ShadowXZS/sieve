@@ -156,8 +156,9 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
         setIsSuccess(false);
         onClose();
       }, 1200);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to generate vector PDF report.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to generate vector PDF report.';
+      setErrorMessage(msg);
     } finally {
       setIsGenerating(false);
     }

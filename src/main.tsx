@@ -4,7 +4,7 @@ import { App } from "./App.tsx";
 import "./index.css";
 import { SieveWasmBridge, FilterOp } from "./sieve.ts";
 
-const rootEl = typeof document !== "undefined" ? document.getElementById("app") : null;
+const rootEl = typeof document !== "undefined" ? (document.getElementById("root") ?? document.getElementById("app")) : null;
 if (rootEl) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
@@ -22,7 +22,10 @@ export * from "./state/useSieveStore.ts";
 export * from "./crypto/pii_scrubber.ts";
 export * from "./crypto/privacy_monitor.ts";
 export * from "./crypto/attestation.ts";
+export * from "./crypto/hash.ts";
 export * from "./sanitizer/pii_scrubber.ts";
+export * from "./utils/logger.ts";
+export * from "./config/env.ts";
 export * from "./components/privacy/PrivacyModal.tsx";
 export * from "./components/dropzone/FileDropzone.tsx";
 export * from "./components/kpi/SummaryDashboard.tsx";

@@ -162,7 +162,7 @@ const SECRET_REGEX = /\b(?:password|passwd|pwd|api[_-]?key|bearer|secret)\s*[:=]
 // 7. Physical Street Addresses:
 const ADDRESS_REGEX = /\b\d{1,5}\s+(?:[A-Za-z0-9.#-]+\s+){1,4}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Square|Sq|Highway|Hwy|Terrace|Ter|Parkway|Pkwy)\b/gi;
 
-interface RawMatch {
+export interface RawMatch {
   type: PiiType;
   startIndex: number;
   endIndex: number;
@@ -172,7 +172,7 @@ interface RawMatch {
 /**
  * Identifies all PII occurrences in a text string.
  */
-function findPiiMatches(text: string, allowedTypes: Set<PiiType>): RawMatch[] {
+export function findPiiMatches(text: string, allowedTypes: Set<PiiType>): RawMatch[] {
   if (!text || typeof text !== 'string') return [];
 
   const rawMatches: RawMatch[] = [];

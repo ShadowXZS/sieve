@@ -45,6 +45,7 @@ import {
 import { registerPdfFonts } from './fonts/index.ts';
 import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from './styles.ts';
 import { scrubKeywordList, scrubPiiText } from '../../crypto/pii_scrubber.ts';
+import { formatConversionCount } from '../../components/pdf/ExecutiveReportPdf.tsx';
 
 // Ensure offline UTF-8 TrueType fonts are registered
 registerPdfFonts();
@@ -248,14 +249,14 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
           >
             <View style={styles.cardHeaderRow}>
               <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.reallocation.text }]}>
-                Reallocation Yield
+                REALLOCATION YIELD
               </Text>
               <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.badgeBg }]}>
                 <Text style={{ color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }}>Efficiency</Text>
               </View>
             </View>
             <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }]}>
-              +{execAnalytics.reallocationYield.incrementalConversions.toFixed(1)} Convs
+              +{formatConversionCount(execAnalytics.reallocationYield.incrementalConversions)} Convs
             </Text>
             <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
               Annual: {execAnalytics.reallocationYield.formattedAnnualizedRecovery}

@@ -7,7 +7,7 @@
  */
 
 export interface MockWritableStream {
-  write(chunk: any): Promise<void>;
+  write(chunk: Uint8Array | ArrayBuffer | Blob | string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -51,7 +51,7 @@ export async function syncVaultToLocalDirectory(
   const writable = await fileHandle.createWritable();
 
   try {
-    await writable.write(payload);
+    await writable.write(payload.buffer as ArrayBuffer);
   } finally {
     await writable.close();
   }
@@ -70,11 +70,15 @@ export async function syncVaultToLocalDirectory(
 export async function pickLocalDirectory(): Promise<FileSystemDirectoryHandle | null> {
   if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
     try {
-      return await (window as any).showDirectoryPicker({
+      return await (
+        window as unknown as {
+          showDirectoryPicker: (options?: unknown) => Promise<FileSystemDirectoryHandle>;
+        }
+      ).showDirectoryPicker({
         mode: 'readwrite',
       });
-    } catch (err: any) {
-      if (err.name === 'AbortError') return null;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return null;
       throw err;
     }
   }
@@ -86,7 +90,7 @@ export async function pickLocalDirectory(): Promise<FileSystemDirectoryHandle | 
  */
 export function triggerBrowserVaultDownload(payload: Uint8Array, filename: string): void {
   const normalizedName = normalizeVaultFilename(filename);
-  const blob = new Blob([payload as any], { type: 'application/octet-stream' });
+  const blob = new Blob([payload as unknown as BlobPart], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

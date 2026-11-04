@@ -134,8 +134,8 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
         }
 
         onIngestComplete?.(files);
-      } catch (err: any) {
-        const msg = err?.message || 'Failed to process files via worker pool';
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to process files via worker pool';
         setErrorMessage(msg);
         setStoreErrorMessage(msg);
       } finally {

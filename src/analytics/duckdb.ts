@@ -6,22 +6,51 @@
  */
 
 import * as duckdb from '@duckdb/duckdb-wasm/blocking';
+import { logger } from '../utils/logger.ts';
 
-let dbInstance: any = null;
-let connInstance: any = null;
-let initPromise: Promise<any> | null = null;
+// Type definitions for DuckDB internal instances
+export interface DuckDBConnection {
+  query: (query: string) => any;
+  prepare: (query: string) => Promise<any>;
+  insertArrowFromIPCStream: (buffer: Uint8Array, options?: { name?: string }) => void;
+  close: () => void;
+}
+
+export interface DuckDBDatabase {
+  connect: () => DuckDBConnection;
+  instantiate: () => Promise<void>;
+  terminate?: () => void;
+}
+
+let dbInstance: DuckDBDatabase | null = null;
+let connInstance: DuckDBConnection | null = null;
+let initPromise: Promise<DuckDBConnection> | null = null;
 
 export interface DuckDBQueryResult {
   columns: string[];
-  rows: Array<Record<string, any>>;
+  rows: Array<Record<string, unknown>>;
   rowCount: number;
   executionTimeMs: number;
+}
+
+const TABLE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Validates a table name string to prevent SQL injection.
+ */
+export function validateTableName(tableName: string): string {
+  if (!TABLE_IDENTIFIER_REGEX.test(tableName)) {
+    throw new Error(
+      `Invalid table name identifier: "${tableName}". Table names must only contain alphanumeric characters and underscores.`
+    );
+  }
+  return tableName;
 }
 
 /**
  * Initializes the local DuckDB-Wasm database instance and connection.
  */
-export async function initDuckDB(): Promise<any> {
+export async function initDuckDB(): Promise<DuckDBConnection> {
   if (connInstance) return connInstance;
   if (initPromise) return initPromise;
 
@@ -52,7 +81,9 @@ export async function initDuckDB(): Promise<any> {
           if (typeof (self as any).location !== 'undefined') {
             baseUrl = (self as any).location.origin || '';
           }
-        } catch {}
+        } catch (locErr) {
+          logger.debug('Unable to resolve self.location.origin, using root relative path', locErr);
+        }
         bundle = {
           eh: {
             mainModule: baseUrl ? `${baseUrl}/duckdb-eh.wasm` : '/duckdb-eh.wasm',
@@ -66,8 +97,8 @@ export async function initDuckDB(): Promise<any> {
         runtime = (duckdb as any).DEFAULT_RUNTIME;
       }
 
-      const logger = new (duckdb as any).VoidLogger();
-      dbInstance = await (duckdb as any).createDuckDB(bundle, logger, runtime);
+      const duckLogger = new (duckdb as any).VoidLogger();
+      dbInstance = (await (duckdb as any).createDuckDB(bundle, duckLogger, runtime)) as DuckDBDatabase;
       await dbInstance.instantiate();
       connInstance = dbInstance.connect();
 
@@ -86,7 +117,7 @@ export async function initDuckDB(): Promise<any> {
 
       return connInstance;
     } catch (err) {
-      console.error('Failed to initialize DuckDB:', err);
+      logger.error('Failed to initialize DuckDB:', err);
       throw err;
     } finally {
       initPromise = null;
@@ -104,7 +135,7 @@ export async function executeDuckDBSQL(
   query: string,
   timeoutMs: number = 5000
 ): Promise<DuckDBQueryResult> {
-  let timer: any;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new Error(`DuckDB query timed out after ${timeoutMs}ms: query aborted`));
@@ -122,7 +153,7 @@ export async function executeDuckDBSQL(
       : [];
 
     const rows = arrowResult.toArray().map((r: any) => {
-      const obj: Record<string, any> = {};
+      const obj: Record<string, unknown> = {};
       for (const col of columns) {
         const val = r[col];
         obj[col] = typeof val === 'bigint' ? Number(val) : val;
@@ -141,7 +172,7 @@ export async function executeDuckDBSQL(
   try {
     return await Promise.race([queryExec, timeoutPromise]);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -161,7 +192,7 @@ export async function executeDuckDBSQLWithTimeout(
  */
 export async function executePreparedStatement(
   sql: string,
-  params: any[] = []
+  params: unknown[] = []
 ): Promise<DuckDBQueryResult> {
   const conn = await initDuckDB();
   const startTime = performance.now();
@@ -177,7 +208,7 @@ export async function executePreparedStatement(
       : [];
 
     const rows = arrowResult.toArray().map((r: any) => {
-      const obj: Record<string, any> = {};
+      const obj: Record<string, unknown> = {};
       for (const col of columns) {
         const val = r[col];
         obj[col] = typeof val === 'bigint' ? Number(val) : val;
@@ -195,7 +226,9 @@ export async function executePreparedStatement(
     if (stmt) {
       try {
         await stmt.close();
-      } catch {}
+      } catch (closeErr) {
+        logger.debug('DuckDB prepared statement close warning:', closeErr);
+      }
     }
   }
 }
@@ -207,25 +240,33 @@ export async function registerArrowTable(
   tableName: string,
   ipcBuffer: Uint8Array | ArrayBuffer
 ): Promise<void> {
+  const safeName = validateTableName(tableName);
   const conn = await initDuckDB();
   try {
-    conn.query(`DROP TABLE IF EXISTS ${tableName};`);
-  } catch {}
+    conn.query(`DROP TABLE IF EXISTS ${safeName};`);
+  } catch (dropErr) {
+    logger.debug(`DuckDB table ${safeName} drop before registration notice:`, dropErr);
+  }
   const uint8 = ipcBuffer instanceof Uint8Array ? ipcBuffer : new Uint8Array(ipcBuffer);
-  conn.insertArrowFromIPCStream(uint8, { name: tableName });
+  conn.insertArrowFromIPCStream(uint8, { name: safeName });
 }
 
 /**
  * Drops an analytical virtual table and issues a memory checkpoint.
  */
 export async function dropTable(tableName: string = 'search_terms'): Promise<void> {
+  const safeName = validateTableName(tableName);
   if (!connInstance) return;
   try {
-    connInstance.query(`DROP TABLE IF EXISTS ${tableName};`);
+    connInstance.query(`DROP TABLE IF EXISTS ${safeName};`);
     try {
       connInstance.query('CHECKPOINT;');
-    } catch {}
-  } catch {}
+    } catch (chkErr) {
+      logger.debug('DuckDB checkpoint warning:', chkErr);
+    }
+  } catch (err) {
+    logger.warn(`Failed to drop DuckDB table ${safeName}:`, err);
+  }
 }
 
 /**
@@ -242,13 +283,17 @@ export async function closeDuckDB(): Promise<void> {
   if (connInstance) {
     try {
       connInstance.close();
-    } catch {}
+    } catch (closeErr) {
+      logger.debug('DuckDB close warning:', closeErr);
+    }
     connInstance = null;
   }
   if (dbInstance) {
     try {
       dbInstance.terminate?.();
-    } catch {}
+    } catch (termErr) {
+      logger.debug('DuckDB terminate warning:', termErr);
+    }
     dbInstance = null;
   }
 }

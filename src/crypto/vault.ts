@@ -155,6 +155,20 @@ export async function importVaultFromBuffer(
 
   const ciphertext = buffer.slice(offset);
 
+function validateVaultPayload(data: unknown): SieveVaultPayload {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Corrupted vault payload: expected an object root');
+  }
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.version !== 'number' || typeof obj.exportedAt !== 'number') {
+    throw new Error('Corrupted vault payload: missing version or exportedAt timestamp');
+  }
+  if (!Array.isArray(obj.sessions) || !Array.isArray(obj.exclusions)) {
+    throw new Error('Corrupted vault payload: invalid sessions or exclusions collection');
+  }
+  return obj as unknown as SieveVaultPayload;
+}
+
   // 3. Derive key and decrypt payload
   let plaintextBuffer: ArrayBuffer;
   try {
@@ -164,7 +178,7 @@ export async function importVaultFromBuffer(
       derivedKey,
       ciphertext
     );
-  } catch (err: any) {
+  } catch (_err: unknown) {
     throw new Error(
       'Authentication failed: Invalid passphrase or corrupted vault payload (GCM tag verification failure).'
     );
@@ -174,8 +188,12 @@ export async function importVaultFromBuffer(
   const jsonString = new TextDecoder().decode(plaintextBuffer);
   let payload: SieveVaultPayload;
   try {
-    payload = JSON.parse(jsonString);
-  } catch (err: any) {
+    const parsed = JSON.parse(jsonString);
+    payload = validateVaultPayload(parsed);
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('Corrupted vault payload')) {
+      throw err;
+    }
     throw new Error('Corrupted vault payload: invalid JSON structure post-decryption');
   }
 

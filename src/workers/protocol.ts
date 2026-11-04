@@ -474,6 +474,19 @@ export interface WorkerErrorResponse extends BaseWorkerResponse {
   stack?: string;
 }
 
+export class WorkerExecutionError extends Error {
+  public readonly code: string;
+  public readonly workerId?: number;
+
+  constructor(message: string, code: string = 'WORKER_INTERNAL_ERROR', workerId?: number) {
+    super(message);
+    this.name = 'WorkerExecutionError';
+    this.code = code;
+    this.workerId = workerId;
+    Object.setPrototypeOf(this, WorkerExecutionError.prototype);
+  }
+}
+
 export type WorkerResponse =
   | InitWasmSuccessResponse
   | IngestChunkProgressResponse

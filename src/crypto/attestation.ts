@@ -32,27 +32,8 @@ export interface InterceptedCall {
   blocked: boolean;
 }
 
-function sortKeysRecursively(obj: any): any {
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sortKeysRecursively);
-  }
-  const sorted: Record<string, any> = {};
-  const keys = Object.keys(obj).sort();
-  for (const k of keys) {
-    sorted[k] = sortKeysRecursively(obj[k]);
-  }
-  return sorted;
-}
-
-async function computeSha256(data: string): Promise<string> {
-  const enc = new TextEncoder().encode(data);
-  const digestBuffer = await crypto.subtle.digest('SHA-256', enc);
-  const hashArray = Array.from(new Uint8Array(digestBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+import { sortKeysRecursively, computeSha256 } from './hash.ts';
+import { logger } from '../utils/logger.ts';
 
 /**
  * Runtime Network Interceptor enforcing strict 0-byte air-gapped isolation.
@@ -82,7 +63,9 @@ export class AirGapAuditor {
         if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') {
           isLocal = true;
         }
-      } catch {}
+      } catch (err) {
+        logger.debug('Attestation URL parse notice:', err);
+      }
 
       this.dispatches.push({
         protocol: 'HTTP',

@@ -36,6 +36,7 @@ import {
 import { defaultDb } from './storage/db.ts';
 import { resetDuckDB, dropTable } from './analytics/duckdb.ts';
 import { useSieveStore } from './state/useSieveStore.ts';
+import { logger } from './utils/logger.ts';
 
 export const App: React.FC = () => {
   const [workerPool, setWorkerPool] = useState<SieveWorkerPool | null>(null);
@@ -51,19 +52,28 @@ export const App: React.FC = () => {
   const handleClearDataset = async () => {
     reset();
     if (workerPool) {
-      await workerPool.resetAll();
+      try {
+        await workerPool.resetAll();
+      } catch (poolErr) {
+        logger.warn('Failed to reset worker pool during clear dataset:', poolErr);
+      }
     }
     try {
       await dropTable('search_terms');
       await resetDuckDB();
-    } catch {}
+    } catch (duckErr) {
+      logger.warn('Failed to drop DuckDB search_terms table during clear dataset:', duckErr);
+    }
     try {
       await defaultDb.exclusions.clear();
       await defaultDb.hashChunks.clear();
-    } catch {}
+    } catch (dbErr) {
+      logger.warn('Failed to clear IndexedDB tables during clear dataset:', dbErr);
+    }
   };
 
   useEffect(() => {
+    let active = true;
     // Generate deterministic session audit hash & zero-leak attestation
     generateZeroLeakAttestation({
       sessionId: 'session_active',
@@ -72,10 +82,20 @@ export const App: React.FC = () => {
       exclusionsCount: filteredKeywords.length,
       platform: 'sieve_unified',
       clientAppVersion: '0.1.0',
-    }).then((att) => {
-      setAttestation(att);
-      setSessionAuditHash(att.sessionHash);
-    });
+    })
+      .then((att) => {
+        if (active) {
+          setAttestation(att);
+          setSessionAuditHash(att.sessionHash);
+        }
+      })
+      .catch((err) => {
+        logger.error('Failed to generate zero-leak attestation:', err);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [keywords.length, kpi.totalWaste, filteredKeywords.length]);
 
   const handleSyncFileSystem = async () => {
@@ -91,8 +111,10 @@ export const App: React.FC = () => {
       } else {
         triggerBrowserVaultDownload(buffer, filename);
       }
-    } catch (err: any) {
-      alert(`Backup failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Backup failed:', err);
+      alert(`Backup failed: ${msg}`);
     }
   };
 

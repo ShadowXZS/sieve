@@ -5,7 +5,7 @@
  * round-robin task dispatch, and zero-copy transferable memory queues.
  */
 
-import { getTransferables } from './protocol.ts';
+import { getTransferables, WorkerExecutionError } from './protocol.ts';
 import type {
   WorkerCommand,
   WorkerResponse,
@@ -15,6 +15,7 @@ import type {
   MatchTypeDilutionResult,
 } from './protocol.ts';
 import { SieveWorkerCore } from './sieve.worker.ts';
+import { logger } from '../utils/logger.ts';
 
 export interface WorkerPoolOptions {
   concurrency?: number;
@@ -25,7 +26,7 @@ interface QueuedTask {
   transferables: Transferable[];
   targetWorkerId?: number;
   resolve: (value: WorkerResponse) => void;
-  reject: (reason?: any) => void;
+  reject: (reason?: unknown) => void;
 }
 
 class WorkerSlot {
@@ -34,7 +35,7 @@ class WorkerSlot {
   private core: SieveWorkerCore;
   private port1: MessagePort;
   private port2: MessagePort;
-  private currentReject: ((reason?: any) => void) | null = null;
+  private currentReject: ((reason?: unknown) => void) | null = null;
   private currentResolve: ((value: WorkerResponse) => void) | null = null;
   public terminated: boolean = false;
 
@@ -50,13 +51,16 @@ class WorkerSlot {
       try {
         const res = await this.core.handleCommand(e.data);
         res.workerId = this.id;
-        const transferables = (res as any).rawBuffer ? [(res as any).rawBuffer] : [];
+        const transferables = (res as { rawBuffer?: ArrayBuffer }).rawBuffer
+          ? [(res as { rawBuffer: ArrayBuffer }).rawBuffer]
+          : [];
         this.port2.postMessage(res, transferables);
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
         const errorRes: WorkerErrorResponse = {
           type: 'WORKER_ERROR',
           requestId: e.data.requestId,
-          error: err?.message || String(err),
+          error: message,
           code: 'WORKER_INTERNAL_ERROR',
           workerId: this.id,
         };
@@ -73,9 +77,7 @@ class WorkerSlot {
       this.currentReject = null;
 
       if (res.type === 'WORKER_ERROR') {
-        const err = new Error(res.error);
-        (err as any).code = res.code;
-        (err as any).workerId = this.id;
+        const err = new WorkerExecutionError(res.error, res.code, this.id);
         reject?.(err);
       } else {
         resolve?.(res);
@@ -91,7 +93,7 @@ class WorkerSlot {
     command: WorkerCommand,
     transferables: Transferable[],
     resolve: (value: WorkerResponse) => void,
-    reject: (reason?: any) => void
+    reject: (reason?: unknown) => void
   ) {
     this.busy = true;
     this.currentResolve = resolve;
@@ -206,10 +208,8 @@ export class SieveWorkerPool {
         keywords: completeRes.keywords,
       };
     } else if (res.type === 'WORKER_ERROR') {
-      const err = new Error((res as WorkerErrorResponse).error);
-      (err as any).code = (res as WorkerErrorResponse).code;
-      (err as any).workerId = res.workerId;
-      throw err;
+      const errorPayload = res as WorkerErrorResponse;
+      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
     } else {
       throw new Error(`Unexpected worker response type: ${res.type}`);
     }
@@ -220,7 +220,7 @@ export class SieveWorkerPool {
     workerId?: number
   ): Promise<{
     columns: string[];
-    rows: Array<Record<string, any>>;
+    rows: Array<Record<string, unknown>>;
     rowCount: number;
     executionTimeMs: number;
   }> {
@@ -242,10 +242,8 @@ export class SieveWorkerPool {
         executionTimeMs: sqlRes.executionTimeMs,
       };
     } else if (res.type === 'WORKER_ERROR') {
-      const err = new Error((res as import('./protocol.ts').WorkerErrorResponse).error);
-      (err as any).code = (res as any).code;
-      (err as any).workerId = res.workerId;
-      throw err;
+      const errorPayload = res as import('./protocol.ts').WorkerErrorResponse;
+      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
     }
     throw new Error(`Unexpected worker response type for EXECUTE_SQL_QUERY: ${res.type}`);
   }
@@ -271,7 +269,9 @@ export class SieveWorkerPool {
           },
           i
         );
-      } catch {}
+      } catch (resetErr) {
+        logger.warn(`Failed to reset worker ${i}:`, resetErr);
+      }
     }
   }
 
@@ -282,7 +282,7 @@ export class SieveWorkerPool {
       targetCPA,
     });
     if (res.type === 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT') {
-      return (res as any).result;
+      return (res as import('./protocol.ts').AggregateFragmentedLongTailResponse).result;
     }
     throw new Error(`Unexpected response for AGGREGATE_FRAGMENTED_LONG_TAIL: ${res.type}`);
   }
@@ -293,7 +293,7 @@ export class SieveWorkerPool {
       requestId: `dilution_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     });
     if (res.type === 'DETECT_MATCH_TYPE_DILUTION_RESULT') {
-      return (res as any).result;
+      return (res as import('./protocol.ts').DetectMatchTypeDilutionResponse).result;
     }
     throw new Error(`Unexpected response for DETECT_MATCH_TYPE_DILUTION: ${res.type}`);
   }
@@ -329,7 +329,7 @@ export class SieveWorkerPool {
         task.resolve(res);
         this.onWorkerTaskDone(worker);
       },
-      (err: any) => {
+      (err: unknown) => {
         task.reject(err);
         this.onWorkerTaskDone(worker);
       }

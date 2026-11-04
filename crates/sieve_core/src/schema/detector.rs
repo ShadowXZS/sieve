@@ -300,11 +300,11 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
                 mapping.query_col = idx;
                 query_priority = 2;
             }
-        } else if contains_ignore_case(field, b"keyword") || contains_ignore_case(field, b"query") {
-            if query_priority < 1 {
-                mapping.query_col = idx;
-                query_priority = 1;
-            }
+        } else if (contains_ignore_case(field, b"keyword") || contains_ignore_case(field, b"query"))
+            && query_priority < 1
+        {
+            mapping.query_col = idx;
+            query_priority = 1;
         }
 
         // Clicks column resolution: avoid CTR / rate / cost / cpc
@@ -478,20 +478,16 @@ pub fn detect_currency(mut bytes: &[u8]) -> CurrencySymbol {
             if high == 0 {
                 ascii_buf[count] = low;
                 count += 1;
-            } else if high == 0x20 && low == 0xAC {
-                if count + 2 < ascii_buf.len() {
-                    ascii_buf[count] = 0xE2;
-                    ascii_buf[count + 1] = 0x82;
-                    ascii_buf[count + 2] = 0xAC;
-                    count += 3;
-                }
-            } else if high == 0x20 && low == 0xB9 {
-                if count + 2 < ascii_buf.len() {
-                    ascii_buf[count] = 0xE2;
-                    ascii_buf[count + 1] = 0x82;
-                    ascii_buf[count + 2] = 0xB9;
-                    count += 3;
-                }
+            } else if high == 0x20 && low == 0xAC && count + 2 < ascii_buf.len() {
+                ascii_buf[count] = 0xE2;
+                ascii_buf[count + 1] = 0x82;
+                ascii_buf[count + 2] = 0xAC;
+                count += 3;
+            } else if high == 0x20 && low == 0xB9 && count + 2 < ascii_buf.len() {
+                ascii_buf[count] = 0xE2;
+                ascii_buf[count + 1] = 0x82;
+                ascii_buf[count + 2] = 0xB9;
+                count += 3;
             }
             i += 2;
         }
@@ -546,7 +542,7 @@ fn detect_currency_slice(slice: &[u8]) -> CurrencySymbol {
 }
 
 #[inline(always)]
-fn strip_currency_and_spaces<'a>(mut input: &'a [u8]) -> &'a [u8] {
+fn strip_currency_and_spaces(mut input: &[u8]) -> &[u8] {
     loop {
         let prev_len = input.len();
         while let Some(&first) = input.first() {

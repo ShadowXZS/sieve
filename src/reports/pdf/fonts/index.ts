@@ -9,6 +9,7 @@
 
 import { Font } from '@react-pdf/renderer';
 import { dejavuSansRegularBase64, dejavuSansBoldBase64 } from './dejavuFontData.ts';
+import { logger } from '../../../utils/logger.ts';
 
 let isRegistered = false;
 
@@ -48,8 +49,9 @@ export function registerPdfFonts(): void {
     });
 
     isRegistered = true;
-  } catch {
+  } catch (err) {
     // If already registered or in mock test environment, continue safely
+    logger.debug('PDF font registration notice:', err);
   }
 }
 

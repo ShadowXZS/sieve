@@ -8,6 +8,7 @@
 
 import type { PersistedNegativeKeyword } from '../workers/protocol.ts';
 import { normalizeGoogleAdsKeyword, normalizeAmazonKeyword } from './syntax.ts';
+import { logger } from '../utils/logger.ts';
 
 export interface FormatterOptions {
   defaultCampaign?: string;
@@ -73,7 +74,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(text);
       return true;
-    } catch {
+    } catch (clipboardErr) {
+      logger.debug('navigator.clipboard fallback notice:', clipboardErr);
       // Fall through to legacy DOM copy fallback
     }
   }
@@ -92,7 +94,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
       const successful = document.execCommand('copy');
       document.body.removeChild(textarea);
       return successful;
-    } catch {
+    } catch (execCommandErr) {
+      logger.debug('document.execCommand fallback notice:', execCommandErr);
       return false;
     }
   }

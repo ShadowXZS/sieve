@@ -1394,9 +1394,7 @@ pub fn strip_match_syntax(field: &[u8]) -> &[u8] {
     while s.ends_with(b" ") || s.ends_with(b"\t") {
         s = &s[..s.len() - 1];
     }
-    if s.len() >= 2 && s[0] == b'[' && s[s.len() - 1] == b']' {
-        s = &s[1..s.len() - 1];
-    } else if s.len() >= 2 && s[0] == b'"' && s[s.len() - 1] == b'"' {
+    if s.len() >= 2 && ((s[0] == b'[' && s[s.len() - 1] == b']') || (s[0] == b'"' && s[s.len() - 1] == b'"')) {
         s = &s[1..s.len() - 1];
     }
     trim_quotes(s)

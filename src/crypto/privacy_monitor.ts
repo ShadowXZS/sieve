@@ -67,23 +67,8 @@ export interface ZeroLeakAttestation {
   issuedAt: string;
 }
 
-/**
- * Canonically sorts keys recursively to guarantee deterministic serialization.
- */
-function sortKeysRecursively(obj: any): any {
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sortKeysRecursively);
-  }
-  const sorted: Record<string, any> = {};
-  const keys = Object.keys(obj).sort();
-  for (const k of keys) {
-    sorted[k] = sortKeysRecursively(obj[k]);
-  }
-  return sorted;
-}
+import { sortKeysRecursively, computeSha256 } from './hash.ts';
+import { logger } from '../utils/logger.ts';
 
 /**
  * Computes a deterministic SHA-256 audit proof hash representing the execution state.
@@ -91,10 +76,7 @@ function sortKeysRecursively(obj: any): any {
 export async function generateSessionAuditHash(state: SessionAuditState): Promise<string> {
   const canonicalObj = sortKeysRecursively(state);
   const jsonStr = JSON.stringify(canonicalObj);
-  const enc = new TextEncoder().encode(jsonStr);
-  const digestBuffer = await crypto.subtle.digest('SHA-256', enc);
-  const hashArray = Array.from(new Uint8Array(digestBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return computeSha256(jsonStr);
 }
 
 /**
@@ -268,7 +250,8 @@ export class PrivacyMonitor {
     try {
       const parsed = new URL(endpointUrl);
       this.allowedOrigins.add(parsed.origin.toLowerCase());
-    } catch {
+    } catch (err) {
+      logger.debug('Endpoint string parsed as raw origin:', err);
       this.allowedOrigins.add(endpointUrl.toLowerCase());
     }
   }
@@ -367,7 +350,9 @@ export class PrivacyMonitor {
           ) {
             isAllowed = true;
           }
-        } catch {}
+        } catch (err) {
+          logger.debug('XHR URL resolution notice:', err);
+        }
 
         if (!isAllowed) {
           self.dispatches.push({

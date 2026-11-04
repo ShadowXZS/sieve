@@ -9,10 +9,52 @@
       content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data:;"
     />
     <title>Sieve</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #09090b;
+        color: #f4f4f5;
+        height: 100%;
+      }
+      #preboot-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #09090b;
+        z-index: 99999;
+      }
+      .sieve-logo-anim {
+        width: 56px;
+        height: 56px;
+        animation: sieve-glow-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      @keyframes sieve-glow-pulse {
+        0%, 100% {
+          transform: scale(0.94);
+          opacity: 0.75;
+          filter: drop-shadow(0 0 0px rgba(16, 185, 129, 0));
+        }
+        50% {
+          transform: scale(1.06);
+          opacity: 1;
+          filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.45));
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="root">
+      <div id="preboot-loader">
+        <img src="/logo.svg" onerror="this.src='/sieve.svg'" alt="Sieve Logo" class="sieve-logo-anim" />
+        <div style="margin-top: 20px; font-family: monospace; font-size: 11px; color: #71717a; letter-spacing: 0.18em; text-transform: uppercase;">
+          Loading Sieve Core...
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
