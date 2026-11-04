@@ -106,6 +106,22 @@ impl NGramAggregator {
     }
 }
 
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum QueryMatchType {
+    Broad = 0,
+    Phrase = 1,
+    Exact = 2,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExactBenchmark {
+    pub query: Box<[u8]>,
+    pub clicks: u64,
+    pub cost: f64,
+    pub conversions: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct QueryAuctionRecord {
     pub campaign: Box<[u8]>,
@@ -114,6 +130,7 @@ pub struct QueryAuctionRecord {
     pub cost: f64,
     pub conversions: f64,
     pub is_pmax: bool,
+    pub match_type: QueryMatchType,
 }
 
 pub struct SieveEngine {
@@ -122,6 +139,7 @@ pub struct SieveEngine {
     pub aggregator: NGramAggregator,
     pub header_parsed: bool,
     pub query_auction_map: HashMap<Box<[u8]>, Vec<QueryAuctionRecord>>,
+    pub exact_benchmarks: HashMap<u64, ExactBenchmark>,
     pub remainder_buf: Vec<u8>,
     // Consecutive repeated query acceleration cache
     last_query_buf: [u8; 128],
@@ -144,6 +162,7 @@ impl SieveEngine {
             aggregator: NGramAggregator::new(),
             header_parsed: false,
             query_auction_map: HashMap::new(),
+            exact_benchmarks: HashMap::new(),
             remainder_buf: Vec::with_capacity(1024),
             last_query_buf: [0u8; 128],
             last_query_len: 0,
@@ -158,6 +177,7 @@ impl SieveEngine {
         self.aggregator.reset();
         self.header_parsed = false;
         self.query_auction_map.clear();
+        self.exact_benchmarks.clear();
         self.remainder_buf.clear();
         self.last_query_len = 0;
         self.cached_entries_count = 0;
@@ -377,48 +397,85 @@ impl SieveEngine {
                         self.aggregator.record_query_row(clicks, cost, conversions);
                         let clicks_u64 = clicks as u64;
 
-                        if mapping.has_campaign {
-                            let campaign_field = if mapping.campaign_col < count {
-                                trim_quotes(fields[mapping.campaign_col])
+                        let match_type = if mapping.has_match_type && mapping.match_type_col < count {
+                            let m = trim_quotes(fields[mapping.match_type_col]);
+                            if contains_ignore_case(m, b"exact") {
+                                QueryMatchType::Exact
+                            } else if contains_ignore_case(m, b"phrase") {
+                                QueryMatchType::Phrase
+                            } else if contains_ignore_case(m, b"broad") {
+                                QueryMatchType::Broad
+                            } else if query_field.starts_with(b"[") && query_field.ends_with(b"]") {
+                                QueryMatchType::Exact
+                            } else if query_field.starts_with(b"\"") && query_field.ends_with(b"\"") {
+                                QueryMatchType::Phrase
                             } else {
-                                &[]
-                            };
-
-                            let adgroup_field = if mapping.has_adgroup && mapping.adgroup_col < count {
-                                trim_quotes(fields[mapping.adgroup_col])
-                            } else {
-                                &[]
-                            };
-
-                            let is_pmax = contains_ignore_case(campaign_field, b"pmax")
-                                || contains_ignore_case(campaign_field, b"performance max");
-
-                            let records = self.query_auction_map
-                                .entry(Box::from(query_field))
-                                .or_default();
-
-                            if let Some(existing) = records.iter_mut().find(|r| {
-                                r.campaign.as_ref() == campaign_field && r.adgroup.as_ref() == adgroup_field
-                            }) {
-                                existing.clicks += clicks_u64;
-                                existing.cost += cost;
-                                existing.conversions += conversions;
-                            } else {
-                                records.push(QueryAuctionRecord {
-                                    campaign: Box::from(campaign_field),
-                                    adgroup: Box::from(adgroup_field),
-                                    clicks: clicks_u64,
-                                    cost,
-                                    conversions,
-                                    is_pmax,
-                                });
+                                QueryMatchType::Broad
                             }
+                        } else if query_field.starts_with(b"[") && query_field.ends_with(b"]") {
+                            QueryMatchType::Exact
+                        } else if query_field.starts_with(b"\"") && query_field.ends_with(b"\"") {
+                            QueryMatchType::Phrase
+                        } else {
+                            QueryMatchType::Broad
+                        };
+
+                        let clean_query = strip_match_syntax(query_field);
+
+                        if match_type == QueryMatchType::Exact {
+                            let hash = compute_normalized_token_hash(clean_query);
+                            let benchmark = self.exact_benchmarks.entry(hash).or_insert_with(|| ExactBenchmark {
+                                query: Box::from(clean_query),
+                                clicks: 0,
+                                cost: 0.0,
+                                conversions: 0.0,
+                            });
+                            benchmark.clicks += clicks_u64;
+                            benchmark.cost += cost;
+                            benchmark.conversions += conversions;
+                        }
+
+                        let campaign_field = if mapping.has_campaign && mapping.campaign_col < count {
+                            trim_quotes(fields[mapping.campaign_col])
+                        } else {
+                            &[]
+                        };
+
+                        let adgroup_field = if mapping.has_adgroup && mapping.adgroup_col < count {
+                            trim_quotes(fields[mapping.adgroup_col])
+                        } else {
+                            &[]
+                        };
+
+                        let is_pmax = contains_ignore_case(campaign_field, b"pmax")
+                            || contains_ignore_case(campaign_field, b"performance max");
+
+                        let records = self.query_auction_map
+                            .entry(Box::from(clean_query))
+                            .or_default();
+
+                        if let Some(existing) = records.iter_mut().find(|r| {
+                            r.campaign.as_ref() == campaign_field && r.adgroup.as_ref() == adgroup_field && r.match_type == match_type
+                        }) {
+                            existing.clicks += clicks_u64;
+                            existing.cost += cost;
+                            existing.conversions += conversions;
+                        } else {
+                            records.push(QueryAuctionRecord {
+                                campaign: Box::from(campaign_field),
+                                adgroup: Box::from(adgroup_field),
+                                clicks: clicks_u64,
+                                cost,
+                                conversions,
+                                is_pmax,
+                                match_type,
+                            });
                         }
 
                         // Check if current query matches the cached consecutive query
                         let is_same_query = self.last_query_len > 0
-                            && self.last_query_len == query_field.len()
-                            && &self.last_query_buf[..self.last_query_len] == query_field
+                            && self.last_query_len == clean_query.len()
+                            && &self.last_query_buf[..self.last_query_len] == clean_query
                             && self.cached_entries_count > 0;
 
                         if is_same_query {
@@ -430,8 +487,8 @@ impl SieveEngine {
                             }
                         } else {
                             // Cache miss: update query buffer and re-resolve entries
-                            let copy_len = query_field.len().min(self.last_query_buf.len());
-                            self.last_query_buf[..copy_len].copy_from_slice(&query_field[..copy_len]);
+                            let copy_len = clean_query.len().min(self.last_query_buf.len());
+                            self.last_query_buf[..copy_len].copy_from_slice(&clean_query[..copy_len]);
                             self.last_query_len = copy_len;
                             self.cached_entries_count = 0;
 
@@ -439,7 +496,7 @@ impl SieveEngine {
                             let entry_ptrs = &mut self.cached_entry_ptrs;
                             let count_ref = &mut self.cached_entries_count;
 
-                            tokenize_ngrams(query_field, |n, token| {
+                            tokenize_ngrams(clean_query, |n, token| {
                                 let ptr = agg.accumulate_ngram(n, token, clicks_u64, cost, conversions);
                                 if !ptr.is_null() && *count_ref < entry_ptrs.len() {
                                     entry_ptrs[*count_ref] = ptr;
@@ -749,6 +806,268 @@ impl SieveEngine {
         let _ = cursor.write_str("]");
         cursor.pos
     }
+
+    /// Explicitly registers or overrides an exact match keyword benchmark CPC.
+    pub fn add_exact_benchmark(&mut self, query: &[u8], benchmark_cpc: f64) {
+        let clean = strip_match_syntax(query);
+        let hash = compute_normalized_token_hash(clean);
+        self.exact_benchmarks.insert(
+            hash,
+            ExactBenchmark {
+                query: Box::from(clean),
+                clicks: 1,
+                cost: benchmark_cpc,
+                conversions: 0.0,
+            },
+        );
+    }
+
+    /// Identifies shared root tokens across long-tail queries (queries with <= 2 clicks)
+    /// that collectively cause significant waste.
+    /// Executes entirely in WASM, streaming JSON directly to the output buffer without creating
+    /// intermediate dynamic string arrays.
+    pub fn aggregate_fragmented_long_tail(&self, target_cpa: f64, output: &mut [u8]) -> usize {
+        let safe_target_cpa = if target_cpa > 0.0 { target_cpa } else { 50.0 };
+        let mut root_token_map: HashMap<Box<[u8]>, LongTailRootAggregate> = HashMap::with_capacity(1024);
+
+        let mut total_long_tail_queries: u64 = 0;
+        let mut total_long_tail_clicks: u64 = 0;
+        let mut total_long_tail_cost: f64 = 0.0;
+        let mut total_long_tail_waste: f64 = 0.0;
+
+        for (query, records) in &self.query_auction_map {
+            let mut query_clicks = 0u64;
+            let mut query_cost = 0.0f64;
+            let mut query_conversions = 0.0f64;
+
+            for r in records {
+                query_clicks += r.clicks;
+                query_cost += r.cost;
+                query_conversions += r.conversions;
+            }
+
+            // Long-tail threshold: queries with <= 2 clicks
+            if query_clicks <= 2 {
+                total_long_tail_queries += 1;
+                total_long_tail_clicks += query_clicks;
+                total_long_tail_cost += query_cost;
+
+                let waste = if query_conversions <= 0.0 {
+                    query_cost
+                } else {
+                    (query_cost - query_conversions * safe_target_cpa).max(0.0)
+                };
+                total_long_tail_waste += waste;
+
+                // Extract unique root tokens from this query
+                let mut seen_tokens: Vec<Box<[u8]>> = Vec::with_capacity(8);
+                crate::guard::safe_list::split_words(query, |w| {
+                    if w.len() >= 2 && !seen_tokens.iter().any(|existing| existing.as_ref() == w) {
+                        seen_tokens.push(Box::from(w));
+                    }
+                });
+
+                for token in seen_tokens {
+                    let entry = root_token_map.entry(token).or_default();
+                    entry.query_count += 1;
+                    entry.clicks += query_clicks;
+                    entry.cost += query_cost;
+                    entry.conversions += query_conversions;
+                    entry.waste += waste;
+                }
+            }
+        }
+
+        // Shared root tokens across queries: query_count >= 2 and waste > 0
+        let mut shared_roots: Vec<(&[u8], &LongTailRootAggregate)> = root_token_map
+            .iter()
+            .filter(|(_, agg)| agg.query_count >= 2 && agg.waste > 0.0)
+            .map(|(t, agg)| (t.as_ref(), agg))
+            .collect();
+
+        // Sort by waste descending
+        shared_roots.sort_by(|a, b| {
+            b.1.waste
+                .partial_cmp(&a.1.waste)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        struct Cursor<'a> {
+            buf: &'a mut [u8],
+            pos: usize,
+        }
+
+        impl<'a> Write for Cursor<'a> {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let remaining = self.buf.len().saturating_sub(self.pos);
+                let to_copy = bytes.len().min(remaining);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut cursor = Cursor {
+            buf: output,
+            pos: 0,
+        };
+        let _ = write!(
+            cursor,
+            r#"{{"total_long_tail_queries":{},"total_long_tail_clicks":{},"total_long_tail_cost":{:.2},"total_long_tail_waste":{:.2},"identified_root_tokens_count":{},"root_tokens":["#,
+            total_long_tail_queries,
+            total_long_tail_clicks,
+            total_long_tail_cost,
+            total_long_tail_waste,
+            shared_roots.len()
+        );
+
+        for (i, (token, agg)) in shared_roots.iter().enumerate() {
+            if i > 0 {
+                let _ = cursor.write_str(",");
+            }
+            let token_str = core::str::from_utf8(token).unwrap_or("");
+            let _ = write!(
+                cursor,
+                r#"{{"token":"{}","query_count":{},"total_clicks":{},"total_cost":{:.2},"total_conversions":{:.0},"waste":{:.2}}}"#,
+                token_str, agg.query_count, agg.clicks, agg.cost, agg.conversions, agg.waste
+            );
+        }
+
+        let _ = cursor.write_str("]}");
+        cursor.pos
+    }
+
+    /// Calculates budget lost when automated broad/phrase queries capture searches
+    /// that exist as exact match keywords at higher CPCs.
+    /// Matches normalized token hashes to achieve sub-10ms evaluation.
+    pub fn detect_match_type_dilution(&self, output: &mut [u8]) -> usize {
+        let mut diluted_items: Vec<DilutedQueryItem> = Vec::with_capacity(64);
+        let mut total_budget_lost = 0.0f64;
+        let mut total_diluted_clicks = 0u64;
+        let mut total_diluted_spend = 0.0f64;
+        let mut total_benchmark_spend = 0.0f64;
+
+        for (query, records) in &self.query_auction_map {
+            let mut broad_clicks = 0u64;
+            let mut broad_cost = 0.0f64;
+
+            for r in records {
+                if r.match_type != QueryMatchType::Exact {
+                    broad_clicks += r.clicks;
+                    broad_cost += r.cost;
+                }
+            }
+
+            if broad_clicks == 0 || broad_cost <= 0.0 {
+                continue;
+            }
+
+            let broad_cpc = broad_cost / broad_clicks as f64;
+            let hash = compute_normalized_token_hash(query);
+
+            if let Some(exact) = self.exact_benchmarks.get(&hash) {
+                let exact_cpc = if exact.clicks > 0 && exact.cost > 0.0 {
+                    exact.cost / exact.clicks as f64
+                } else {
+                    exact.cost
+                };
+
+                if exact_cpc > 0.0 && broad_cpc > exact_cpc {
+                    let budget_lost = (broad_cpc - exact_cpc) * broad_clicks as f64;
+                    let cpc_inflation = broad_cpc / exact_cpc;
+
+                    total_budget_lost += budget_lost;
+                    total_diluted_clicks += broad_clicks;
+                    total_diluted_spend += broad_cost;
+                    total_benchmark_spend += exact_cpc * broad_clicks as f64;
+
+                    diluted_items.push(DilutedQueryItem {
+                        query: query.as_ref(),
+                        broad_cpc,
+                        exact_cpc,
+                        clicks: broad_clicks,
+                        budget_lost,
+                        cpc_inflation_ratio: cpc_inflation,
+                    });
+                }
+            }
+        }
+
+        // Sort diluted items by budget lost descending
+        diluted_items.sort_by(|a, b| {
+            b.budget_lost
+                .partial_cmp(&a.budget_lost)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+
+        let dilution_index = if self.aggregator.aggregated_cost > 0.0 {
+            (total_budget_lost / self.aggregator.aggregated_cost).min(1.0)
+        } else if total_diluted_spend > 0.0 {
+            (total_budget_lost / total_diluted_spend).min(1.0)
+        } else {
+            0.0
+        };
+
+        let avg_cpc_inflation = if total_benchmark_spend > 0.0 {
+            total_diluted_spend / total_benchmark_spend
+        } else if !diluted_items.is_empty() {
+            diluted_items
+                .iter()
+                .map(|d| d.cpc_inflation_ratio)
+                .sum::<f64>()
+                / diluted_items.len() as f64
+        } else {
+            1.0
+        };
+
+        struct Cursor<'a> {
+            buf: &'a mut [u8],
+            pos: usize,
+        }
+
+        impl<'a> Write for Cursor<'a> {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let remaining = self.buf.len().saturating_sub(self.pos);
+                let to_copy = bytes.len().min(remaining);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut cursor = Cursor {
+            buf: output,
+            pos: 0,
+        };
+        let _ = write!(
+            cursor,
+            r#"{{"dilution_index":{:.4},"budget_lost":{:.2},"diluted_queries_count":{},"total_diluted_clicks":{},"diluted_spend":{:.2},"exact_benchmark_spend":{:.2},"average_cpc_inflation":{:.2},"items":["#,
+            dilution_index,
+            total_budget_lost,
+            diluted_items.len(),
+            total_diluted_clicks,
+            total_diluted_spend,
+            total_benchmark_spend,
+            avg_cpc_inflation
+        );
+
+        for (i, item) in diluted_items.iter().enumerate() {
+            if i > 0 {
+                let _ = cursor.write_str(",");
+            }
+            let q_str = core::str::from_utf8(item.query).unwrap_or("");
+            let _ = write!(
+                cursor,
+                r#"{{"query":"{}","broad_cpc":{:.2},"exact_cpc":{:.2},"clicks":{},"budget_lost":{:.2},"cpc_inflation_ratio":{:.2}}}"#,
+                q_str, item.broad_cpc, item.exact_cpc, item.clicks, item.budget_lost, item.cpc_inflation_ratio
+            );
+        }
+
+        let _ = cursor.write_str("]}");
+        cursor.pos
+    }
 }
 
 fn write_escaped_json_str<W: core::fmt::Write>(w: &mut W, bytes: &[u8]) {
@@ -847,4 +1166,139 @@ fn trim_quotes(field: &[u8]) -> &[u8] {
         slice = &slice[1..slice.len() - 1];
     }
     slice
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LongTailRootAggregate {
+    pub query_count: u64,
+    pub clicks: u64,
+    pub cost: f64,
+    pub conversions: f64,
+    pub waste: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct DilutedQueryItem<'a> {
+    pub query: &'a [u8],
+    pub broad_cpc: f64,
+    pub exact_cpc: f64,
+    pub clicks: u64,
+    pub budget_lost: f64,
+    pub cpc_inflation_ratio: f64,
+}
+
+/// Computes a 64-bit deterministic hash over normalized tokens.
+/// Ignores brackets, quotes, case, and extra whitespace so exact/broad variants match O(1).
+#[inline(always)]
+pub fn compute_normalized_token_hash(raw: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    crate::guard::safe_list::split_words(raw, |w| {
+        for &b in w {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash ^= 0x20;
+        hash = hash.wrapping_mul(0x100000001b3);
+    });
+    hash
+}
+
+/// Strips bracketed exact [term] or quoted phrase "term" match type syntax.
+#[inline(always)]
+pub fn strip_match_syntax(field: &[u8]) -> &[u8] {
+    let mut s = field;
+    while s.starts_with(b" ") || s.starts_with(b"\t") {
+        s = &s[1..];
+    }
+    while s.ends_with(b" ") || s.ends_with(b"\t") {
+        s = &s[..s.len() - 1];
+    }
+    if s.len() >= 2 && s[0] == b'[' && s[s.len() - 1] == b']' {
+        s = &s[1..s.len() - 1];
+    } else if s.len() >= 2 && s[0] == b'"' && s[s.len() - 1] == b'"' {
+        s = &s[1..s.len() - 1];
+    }
+    trim_quotes(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalized_token_hash_invariance() {
+        let h1 = compute_normalized_token_hash(b"[running shoes]");
+        let h2 = compute_normalized_token_hash(b"\"running shoes\"");
+        let h3 = compute_normalized_token_hash(b"running shoes");
+        let h4 = compute_normalized_token_hash(b"Running   Shoes");
+        let h5 = compute_normalized_token_hash(b"[Running Shoes]");
+
+        assert_eq!(h1, h2);
+        assert_eq!(h2, h3);
+        assert_eq!(h3, h4);
+        assert_eq!(h4, h5);
+
+        let h_diff = compute_normalized_token_hash(b"hiking boots");
+        assert_ne!(h1, h_diff);
+    }
+
+    #[test]
+    fn test_fragmented_long_tail_aggregator() {
+        let mut engine = SieveEngine::new();
+        // Ingest queries with <= 2 clicks sharing root tokens "free" and "pdf"
+        let csv = [
+            "Search term,Clicks,Cost,Conversions",
+            "free manual download,1,5.00,0",
+            "free pdf guide,2,7.50,0",
+            "pdf software sample,1,4.00,0",
+            "best converting query,50,150.00,10", // High clicks -> NOT in long tail
+        ]
+        .join("\n");
+
+        let status = engine.ingest_chunk(csv.as_bytes(), true);
+        assert_eq!(status, 0);
+
+        let mut out = [0u8; 4096];
+        let len = engine.aggregate_fragmented_long_tail(50.0, &mut out);
+        assert!(len > 0);
+
+        let json = core::str::from_utf8(&out[..len]).unwrap();
+        assert!(json.contains(r#""total_long_tail_queries":3"#));
+        assert!(json.contains(r#""total_long_tail_clicks":4"#));
+        // Shared root token "free" appears in 2 queries ("free manual download", "free pdf guide"), waste = 12.50
+        assert!(json.contains(r#""token":"free""#));
+        assert!(json.contains(r#""query_count":2"#));
+        // Shared root token "pdf" appears in 2 queries ("free pdf guide", "pdf software sample"), waste = 11.50
+        assert!(json.contains(r#""token":"pdf""#));
+        // "best converting query" must NOT be in long-tail
+        assert!(!json.contains("converting"));
+    }
+
+    #[test]
+    fn test_match_type_dilution_index() {
+        let mut engine = SieveEngine::new();
+        let csv = [
+            "Search term,Match type,Campaign,Ad group,Clicks,Cost,Conversions",
+            "\"running shoes\",Exact,Exact_Campaign,Exact_Adgroup,50,\"60.00\",5", // Exact CPC = $1.20
+            "\"running shoes\",Broad,Broad_Campaign,Broad_Adgroup,80,\"200.00\",2", // Broad CPC = $2.50
+            "\"unrelated search\",Broad,Broad_Campaign,Broad_Adgroup,20,\"40.00\",1",
+        ]
+        .join("\n");
+
+        let status = engine.ingest_chunk(csv.as_bytes(), true);
+        assert_eq!(status, 0);
+
+        let mut out = [0u8; 4096];
+        let len = engine.detect_match_type_dilution(&mut out);
+        assert!(len > 0);
+
+        let json = core::str::from_utf8(&out[..len]).unwrap();
+        // Budget lost for "running shoes": (2.50 - 1.20) * 80 = 104.00
+        assert!(json.contains(r#""budget_lost":104.00"#));
+        assert!(json.contains(r#""diluted_queries_count":1"#));
+        assert!(json.contains(r#""total_diluted_clicks":80"#));
+        assert!(json.contains(r#""broad_cpc":2.50"#));
+        assert!(json.contains(r#""exact_cpc":1.20"#));
+        assert!(json.contains(r#""cpc_inflation_ratio":2.08"#));
+    }
 }

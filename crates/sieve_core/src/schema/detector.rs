@@ -49,6 +49,8 @@ pub struct SchemaMapping {
     pub adgroup_col: usize,
     pub has_campaign: bool,
     pub has_adgroup: bool,
+    pub match_type_col: usize,
+    pub has_match_type: bool,
 }
 
 impl Default for SchemaMapping {
@@ -63,6 +65,8 @@ impl Default for SchemaMapping {
             adgroup_col: usize::MAX,
             has_campaign: false,
             has_adgroup: false,
+            match_type_col: usize::MAX,
+            has_match_type: false,
         }
     }
 }
@@ -382,6 +386,13 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
         {
             mapping.adgroup_col = idx;
             mapping.has_adgroup = true;
+        } else if contains_ignore_case(field, b"match type")
+            || contains_ignore_case(field, b"match_type")
+            || contains_ignore_case(field, b"criterion type")
+            || equals_ignore_case(field, b"type")
+        {
+            mapping.match_type_col = idx;
+            mapping.has_match_type = true;
         }
     }
 

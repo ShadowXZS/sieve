@@ -7,7 +7,11 @@
  */
 
 import { create } from 'zustand';
-import type { PersistedNegativeKeyword } from '../workers/protocol.ts';
+import type {
+  PersistedNegativeKeyword,
+  FragmentedLongTailResult,
+  MatchTypeDilutionResult,
+} from '../workers/protocol.ts';
 import {
   type SupportedCurrency,
   SUPPORTED_CURRENCIES,
@@ -15,7 +19,7 @@ import {
   detectCurrencyFromData,
 } from '../utils/currency.ts';
 
-export type { SupportedCurrency };
+export type { SupportedCurrency, FragmentedLongTailResult, MatchTypeDilutionResult };
 export { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY };
 
 export interface SieveThresholds {
@@ -51,6 +55,10 @@ export interface SieveState {
   ingestedFiles: IngestedFileInfo[];
   selectedKeyword: PersistedNegativeKeyword | null;
   errorMessage: string | null;
+  longTailResult: FragmentedLongTailResult | null;
+  dilutionResult: MatchTypeDilutionResult | null;
+  isAnalyticalDrawerOpen: boolean;
+  activeAnalyticalTab: 'long-tail' | 'dilution';
 
   // Actions
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
@@ -61,6 +69,10 @@ export interface SieveState {
   setErrorMessage: (msg: string | null) => void;
   addIngestedFiles: (files: File[]) => void;
   setSelectedKeyword: (kw: PersistedNegativeKeyword | null) => void;
+  setLongTailResult: (res: FragmentedLongTailResult | null) => void;
+  setDilutionResult: (res: MatchTypeDilutionResult | null) => void;
+  setAnalyticalDrawerOpen: (isOpen: boolean, tab?: 'long-tail' | 'dilution') => void;
+  setActiveAnalyticalTab: (tab: 'long-tail' | 'dilution') => void;
   reset: () => void;
 }
 
@@ -177,6 +189,10 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   ingestedFiles: [],
   selectedKeyword: null,
   errorMessage: null,
+  longTailResult: null,
+  dilutionResult: null,
+  isAnalyticalDrawerOpen: false,
+  activeAnalyticalTab: 'long-tail',
 
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
     const { thresholds, currency } = get();
@@ -244,6 +260,25 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     set({ selectedKeyword: kw });
   },
 
+  setLongTailResult: (res: FragmentedLongTailResult | null) => {
+    set({ longTailResult: res });
+  },
+
+  setDilutionResult: (res: MatchTypeDilutionResult | null) => {
+    set({ dilutionResult: res });
+  },
+
+  setAnalyticalDrawerOpen: (isOpen: boolean, tab?: 'long-tail' | 'dilution') => {
+    set((state) => ({
+      isAnalyticalDrawerOpen: isOpen,
+      activeAnalyticalTab: tab || state.activeAnalyticalTab,
+    }));
+  },
+
+  setActiveAnalyticalTab: (tab: 'long-tail' | 'dilution') => {
+    set({ activeAnalyticalTab: tab });
+  },
+
   reset: () => {
     set({
       keywords: [],
@@ -257,6 +292,10 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       ingestedFiles: [],
       selectedKeyword: null,
       errorMessage: null,
+      longTailResult: null,
+      dilutionResult: null,
+      isAnalyticalDrawerOpen: false,
+      activeAnalyticalTab: 'long-tail',
     });
   },
 }));

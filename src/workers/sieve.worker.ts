@@ -583,6 +583,97 @@ export class SieveWorkerCore {
           }
         }
 
+        case 'AGGREGATE_FRAGMENTED_LONG_TAIL': {
+          const outCap = 512 * 1024;
+          const outPtr = this.exports.allocate_buffer(outCap);
+          try {
+            const targetCPA = command.targetCPA ?? 50;
+            const written = this.exports.engine_aggregate_fragmented_long_tail(
+              this.enginePtr,
+              targetCPA,
+              outPtr,
+              outCap
+            );
+            const jsonStr = new TextDecoder().decode(
+              new Uint8Array(this.memory!.buffer, outPtr, written)
+            );
+            const result = written > 0 ? JSON.parse(jsonStr) : {
+              total_long_tail_queries: 0,
+              total_long_tail_clicks: 0,
+              total_long_tail_cost: 0,
+              total_long_tail_waste: 0,
+              identified_root_tokens_count: 0,
+              root_tokens: [],
+            };
+            return {
+              type: 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT',
+              requestId: command.requestId,
+              result,
+              workerId: this.workerId,
+            };
+          } finally {
+            this.exports.deallocate_buffer(outPtr, outCap);
+          }
+        }
+
+        case 'DETECT_MATCH_TYPE_DILUTION': {
+          const outCap = 512 * 1024;
+          const outPtr = this.exports.allocate_buffer(outCap);
+          try {
+            const written = this.exports.engine_detect_match_type_dilution(
+              this.enginePtr,
+              outPtr,
+              outCap
+            );
+            const jsonStr = new TextDecoder().decode(
+              new Uint8Array(this.memory!.buffer, outPtr, written)
+            );
+            const result = written > 0 ? JSON.parse(jsonStr) : {
+              dilution_index: 0,
+              budget_lost: 0,
+              diluted_queries_count: 0,
+              total_diluted_clicks: 0,
+              diluted_spend: 0,
+              exact_benchmark_spend: 0,
+              average_cpc_inflation: 1,
+              items: [],
+            };
+            return {
+              type: 'DETECT_MATCH_TYPE_DILUTION_RESULT',
+              requestId: command.requestId,
+              result,
+              workerId: this.workerId,
+            };
+          } finally {
+            this.exports.deallocate_buffer(outPtr, outCap);
+          }
+        }
+
+        case 'ADD_EXACT_BENCHMARKS': {
+          const enc = new TextEncoder();
+          for (const b of command.benchmarks) {
+            const qBytes = enc.encode(b.query);
+            const qPtr = this.exports.allocate_buffer(qBytes.length);
+            try {
+              new Uint8Array(this.memory!.buffer, qPtr, qBytes.length).set(qBytes);
+              this.exports.engine_add_exact_benchmark(
+                this.enginePtr,
+                qPtr,
+                qBytes.length,
+                b.cpc
+              );
+            } finally {
+              this.exports.deallocate_buffer(qPtr, qBytes.length);
+            }
+          }
+          return {
+            type: 'ADD_EXACT_BENCHMARKS_SUCCESS',
+            requestId: command.requestId,
+            count: command.benchmarks.length,
+            workerId: this.workerId,
+          };
+        }
+
         case 'RESET_ENGINE': {
           if (this.enginePtr !== 0) {
             this.exports.engine_reset(this.enginePtr);

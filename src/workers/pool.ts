@@ -11,6 +11,8 @@ import type {
   WorkerResponse,
   IngestChunkCompleteResponse,
   WorkerErrorResponse,
+  FragmentedLongTailResult,
+  MatchTypeDilutionResult,
 } from './protocol.ts';
 import { SieveWorkerCore } from './sieve.worker.ts';
 
@@ -208,6 +210,40 @@ export class SieveWorkerPool {
       throw err;
     } else {
       throw new Error(`Unexpected worker response type: ${res.type}`);
+    }
+  }
+
+  public async aggregateFragmentedLongTail(targetCPA?: number): Promise<FragmentedLongTailResult> {
+    const res = await this.execute({
+      type: 'AGGREGATE_FRAGMENTED_LONG_TAIL',
+      requestId: `long_tail_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      targetCPA,
+    });
+    if (res.type === 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT') {
+      return (res as any).result;
+    }
+    throw new Error(`Unexpected response for AGGREGATE_FRAGMENTED_LONG_TAIL: ${res.type}`);
+  }
+
+  public async detectMatchTypeDilution(): Promise<MatchTypeDilutionResult> {
+    const res = await this.execute({
+      type: 'DETECT_MATCH_TYPE_DILUTION',
+      requestId: `dilution_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    });
+    if (res.type === 'DETECT_MATCH_TYPE_DILUTION_RESULT') {
+      return (res as any).result;
+    }
+    throw new Error(`Unexpected response for DETECT_MATCH_TYPE_DILUTION: ${res.type}`);
+  }
+
+  public async addExactBenchmarks(benchmarks: Array<{ query: string; cpc: number }>): Promise<void> {
+    const res = await this.execute({
+      type: 'ADD_EXACT_BENCHMARKS',
+      requestId: `add_benchmarks_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      benchmarks,
+    });
+    if (res.type !== 'ADD_EXACT_BENCHMARKS_SUCCESS') {
+      throw new Error(`Unexpected response for ADD_EXACT_BENCHMARKS: ${res.type}`);
     }
   }
 

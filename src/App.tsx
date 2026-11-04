@@ -11,6 +11,9 @@ import { FileDropzone } from './components/dropzone/FileDropzone.tsx';
 import { ExecutiveDashboard } from './components/dashboard/ExecutiveDashboard.tsx';
 import { SpendWaterfallBar } from './components/dashboard/SpendWaterfallBar.tsx';
 import { BidElasticityProbe } from './components/dashboard/BidElasticityProbe.tsx';
+import { LongTailBleedCard } from './components/analytics/LongTailBleedCard.tsx';
+import { DilutionAuditCard } from './components/analytics/DilutionAuditCard.tsx';
+import { AnalyticalDrawer } from './components/dashboard/AnalyticalDrawer.tsx';
 import { ThresholdControls } from './components/sliders/ThresholdControls.tsx';
 import { KeywordVirtualGrid } from './components/grid/KeywordVirtualGrid.tsx';
 import { WorkerProcessingHUD } from './components/hud/WorkerProcessingHUD.tsx';
@@ -108,6 +111,12 @@ export const App: React.FC = () => {
         <BidElasticityProbe />
       </section>
 
+      {/* Secondary Analysis Grid: Long-Tail Bleed & Match Dilution Audit */}
+      <section aria-label="Secondary Diagnostic Analysis" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <LongTailBleedCard />
+        <DilutionAuditCard />
+      </section>
+
       {/* Worker Processing HUD - Brand Integrated Multi-Threaded Status */}
       <section aria-label="Worker Processing HUD">
         <WorkerProcessingHUD workerPool={workerPool || undefined} />
@@ -130,6 +139,9 @@ export const App: React.FC = () => {
 
       {/* Centered Vector Processing Pulse Overlay */}
       <ProcessingOverlay isProcessing={isIngesting} progress={ingestionProgress} />
+
+      {/* Analytical Diagnostic Drawer (Phase 11) */}
+      <AnalyticalDrawer />
 
       {/* Cryptographic Privacy & Zero-Telemetry Audit Modal */}
       <PrivacyBadgeModal

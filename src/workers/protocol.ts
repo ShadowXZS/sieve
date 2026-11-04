@@ -79,6 +79,44 @@ export interface CPADragMetrics {
   wasteRatio: number;
 }
 
+export interface LongTailRootTokenRecord {
+  token: string;
+  query_count: number;
+  total_clicks: number;
+  total_cost: number;
+  total_conversions: number;
+  waste: number;
+}
+
+export interface FragmentedLongTailResult {
+  total_long_tail_queries: number;
+  total_long_tail_clicks: number;
+  total_long_tail_cost: number;
+  total_long_tail_waste: number;
+  identified_root_tokens_count: number;
+  root_tokens: LongTailRootTokenRecord[];
+}
+
+export interface DilutedQueryRecord {
+  query: string;
+  broad_cpc: number;
+  exact_cpc: number;
+  clicks: number;
+  budget_lost: number;
+  cpc_inflation_ratio: number;
+}
+
+export interface MatchTypeDilutionResult {
+  dilution_index: number;
+  budget_lost: number;
+  diluted_queries_count: number;
+  total_diluted_clicks: number;
+  diluted_spend: number;
+  exact_benchmark_spend: number;
+  average_cpc_inflation: number;
+  items: DilutedQueryRecord[];
+}
+
 /**
  * Deterministic Negative Keyword representation for Dexie.js persistence.
  * Indexed by sha256Hash for sub-5ms delta checks against existing rulesets.
@@ -141,6 +179,9 @@ export type WorkerCommandType =
   | 'CALCULATE_WILSON_SCORE'
   | 'CALCULATE_BETA_CONFIDENCE'
   | 'CALCULATE_CPA_DRAG'
+  | 'AGGREGATE_FRAGMENTED_LONG_TAIL'
+  | 'DETECT_MATCH_TYPE_DILUTION'
+  | 'ADD_EXACT_BENCHMARKS'
   | 'RESET_ENGINE';
 
 /**
@@ -160,6 +201,9 @@ export type WorkerEventType =
   | 'CALCULATE_WILSON_SCORE_RESULT'
   | 'CALCULATE_BETA_CONFIDENCE_RESULT'
   | 'CALCULATE_CPA_DRAG_RESULT'
+  | 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT'
+  | 'DETECT_MATCH_TYPE_DILUTION_RESULT'
+  | 'ADD_EXACT_BENCHMARKS_SUCCESS'
   | 'RESET_ENGINE_SUCCESS'
   | 'WORKER_ERROR';
 
@@ -249,6 +293,23 @@ export interface CalculateCPADragCommand {
   targetCPA: number;
 }
 
+export interface AggregateFragmentedLongTailCommand {
+  type: 'AGGREGATE_FRAGMENTED_LONG_TAIL';
+  requestId: string;
+  targetCPA?: number;
+}
+
+export interface DetectMatchTypeDilutionCommand {
+  type: 'DETECT_MATCH_TYPE_DILUTION';
+  requestId: string;
+}
+
+export interface AddExactBenchmarksCommand {
+  type: 'ADD_EXACT_BENCHMARKS';
+  requestId: string;
+  benchmarks: Array<{ query: string; cpc: number }>;
+}
+
 export interface ResetEngineCommand {
   type: 'RESET_ENGINE';
   requestId: string;
@@ -267,6 +328,9 @@ export type WorkerCommand =
   | CalculateWilsonScoreCommand
   | CalculateBetaConfidenceCommand
   | CalculateCPADragCommand
+  | AggregateFragmentedLongTailCommand
+  | DetectMatchTypeDilutionCommand
+  | AddExactBenchmarksCommand
   | ResetEngineCommand;
 
 // -----------------------------------------------------------------------------
@@ -349,6 +413,21 @@ export interface CalculateCPADragResponse extends BaseWorkerResponse {
   cpaMetrics: CPADragMetrics;
 }
 
+export interface AggregateFragmentedLongTailResponse extends BaseWorkerResponse {
+  type: 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT';
+  result: FragmentedLongTailResult;
+}
+
+export interface DetectMatchTypeDilutionResponse extends BaseWorkerResponse {
+  type: 'DETECT_MATCH_TYPE_DILUTION_RESULT';
+  result: MatchTypeDilutionResult;
+}
+
+export interface AddExactBenchmarksSuccessResponse extends BaseWorkerResponse {
+  type: 'ADD_EXACT_BENCHMARKS_SUCCESS';
+  count: number;
+}
+
 export interface ResetEngineSuccessResponse extends BaseWorkerResponse {
   type: 'RESET_ENGINE_SUCCESS';
 }
@@ -374,6 +453,9 @@ export type WorkerResponse =
   | CalculateWilsonScoreResponse
   | CalculateBetaConfidenceResponse
   | CalculateCPADragResponse
+  | AggregateFragmentedLongTailResponse
+  | DetectMatchTypeDilutionResponse
+  | AddExactBenchmarksSuccessResponse
   | ResetEngineSuccessResponse
   | WorkerErrorResponse;
 

@@ -23,8 +23,11 @@ use csv_core::{Reader, ReaderBuilder, ReadRecordResult};
 use std::alloc::{alloc as sys_alloc, dealloc as sys_dealloc};
 use wasm_bindgen::prelude::*;
 
-pub use engine::{MetricAggregate, NGramAggregator, RadixTrie, SieveEngine, StreamingChunkFeeder};
-pub use guard::{CollisionGuard, SafeListIndex};
+pub use engine::{
+    FragmentedLongTailAggregator, LongTailRootAggregate, MetricAggregate, NGramAggregator,
+    RadixTrie, SieveEngine, StreamingChunkFeeder,
+};
+pub use guard::{CollisionGuard, MatchTypeDilutionGuard, SafeListIndex};
 pub use linguistics::{cluster_tokens, damerau_levenshtein, export_clusters_json, phonetic_code};
 pub use matrix::evaluate_combinatorial_variations;
 pub use schema::{
@@ -260,6 +263,63 @@ pub extern "C" fn engine_export_query_records(
     }
     let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
     engine.export_query_records(out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_aggregate_fragmented_long_tail(
+    ptr: *mut SieveEngine,
+    target_cpa: f64,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.aggregate_fragmented_long_tail(target_cpa, out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_detect_match_type_dilution(
+    ptr: *mut SieveEngine,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.detect_match_type_dilution(out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_add_exact_benchmark(
+    ptr: *mut SieveEngine,
+    query_ptr: *const u8,
+    query_len: usize,
+    benchmark_cpc: f64,
+) -> i32 {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return -1,
+    };
+    if query_ptr.is_null() || query_len == 0 {
+        return -1;
+    }
+    let query = unsafe { core::slice::from_raw_parts(query_ptr, query_len) };
+    engine.add_exact_benchmark(query, benchmark_cpc);
+    0
 }
 
 // -----------------------------------------------------------------------------

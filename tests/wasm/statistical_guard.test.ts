@@ -426,3 +426,149 @@ test("Quality Audit: Zero heap panics and sub-15ms execution over 50,000 unique 
   assert.ok(matches > 0, "Must compute valid matches");
   assert.ok(duration > 0, "Execution must complete successfully");
 });
+
+test("Phase 11: Fragmented Long-Tail Aggregator identifies shared root tokens across queries with <= 2 clicks in WASM", async () => {
+  const { exports, memory } = await loadWasm();
+
+  assert.strictEqual(
+    typeof exports.engine_aggregate_fragmented_long_tail,
+    "function",
+    "WASM module must export 'engine_aggregate_fragmented_long_tail'"
+  );
+
+  const engine = exports.engine_new();
+  try {
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    // Dataset with:
+    // 1-2 click queries sharing "download" and "manual"
+    // And high-volume 30-click converting query "buy winter boots"
+    const csv = [
+      "Search term,Clicks,Cost,Conversions",
+      '"free camera manual download",1,"6.50",0',
+      '"nikon d850 user manual pdf",2,"12.00",0',
+      '"printer driver download setup",1,"8.00",0',
+      '"free manual torrent file",1,"5.00",0',
+      '"buy winter boots",30,"90.00",4', // > 2 clicks -> excluded from long-tail
+    ].join("\n");
+
+    const csvBytes = enc.encode(csv);
+    const inPtr = exports.allocate_buffer(csvBytes.length);
+    new Uint8Array(memory.buffer, inPtr, csvBytes.length).set(csvBytes);
+    exports.engine_ingest_chunk(engine, inPtr, csvBytes.length, 1);
+    exports.deallocate_buffer(inPtr, csvBytes.length);
+
+    const outCap = 16384;
+    const outPtr = exports.allocate_buffer(outCap);
+    const written = exports.engine_aggregate_fragmented_long_tail(engine, 50.0, outPtr, outCap);
+    assert.ok(written > 0, "Must export long-tail aggregate JSON");
+
+    const jsonStr = dec.decode(new Uint8Array(memory.buffer, outPtr, written));
+    exports.deallocate_buffer(outPtr, outCap);
+
+    const res = JSON.parse(jsonStr);
+    assert.strictEqual(res.total_long_tail_queries, 4, "Total long tail queries must be 4");
+    assert.strictEqual(res.total_long_tail_clicks, 5, "Total long tail clicks must be 5");
+    assert.strictEqual(Math.round(res.total_long_tail_cost * 100), 3150, "Total spend on long-tail queries = $31.50");
+    assert.strictEqual(Math.round(res.total_long_tail_waste * 100), 3150, "Total waste on long-tail queries = $31.50");
+
+    // Shared root tokens across queries: "manual" (in 3 queries) and "download" (in 2 queries)
+    const manualToken = res.root_tokens.find((t: any) => t.token === "manual");
+    assert.ok(manualToken, "Root token 'manual' must be identified");
+    assert.strictEqual(manualToken.query_count, 3, "'manual' appears across 3 distinct long-tail queries");
+    assert.strictEqual(manualToken.total_clicks, 4);
+    assert.strictEqual(Math.round(manualToken.total_cost * 100), 2350);
+    assert.strictEqual(Math.round(manualToken.waste * 100), 2350);
+
+    const downloadToken = res.root_tokens.find((t: any) => t.token === "download");
+    assert.ok(downloadToken, "Root token 'download' must be identified");
+    assert.strictEqual(downloadToken.query_count, 2);
+
+    // "boots" should NOT appear in long-tail roots
+    const bootsToken = res.root_tokens.find((t: any) => t.token === "boots");
+    assert.strictEqual(bootsToken, undefined, "'boots' query had 30 clicks and must not be in long-tail");
+  } finally {
+    exports.engine_free(engine);
+  }
+});
+
+test("Phase 11: Match-Type Dilution Index matches normalized token hashes under 10ms and calculates budget lost", async () => {
+  const { exports, memory } = await loadWasm();
+
+  assert.strictEqual(
+    typeof exports.engine_detect_match_type_dilution,
+    "function",
+    "WASM module must export 'engine_detect_match_type_dilution'"
+  );
+
+  const engine = exports.engine_new();
+  try {
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    // Ingest Exact match keywords and Broad queries capturing same search terms at higher CPC
+    // Query 1: "waterproof trail runners"
+    //   Exact row: CPC = $1.50 (Clicks=40, Cost=60.00, Convs=4)
+    //   Broad row: CPC = $3.20 (Clicks=50, Cost=160.00, Convs=1)
+    //   Budget Lost = (3.20 - 1.50) * 50 = $85.00
+    // Query 2: "merino wool hiking socks"
+    //   Exact row: CPC = $0.80 (Clicks=100, Cost=80.00, Convs=10)
+    //   Broad row: CPC = $1.80 (Clicks=60, Cost=108.00, Convs=2)
+    //   Budget Lost = (1.80 - 0.80) * 60 = $60.00
+    // Query 3: "cheap camp stove" (Broad only, no exact benchmark -> NOT diluted)
+    const csv = [
+      "Search term,Match type,Campaign,Ad group,Clicks,Cost,Conversions",
+      '"waterproof trail runners",Exact,Trail_Exact_Camp,Adg_Exact,40,"60.00",4',
+      '"waterproof trail runners",Broad,Smart_Broad_Camp,Adg_Broad,50,"160.00",1',
+      '"merino wool hiking socks",Exact,Apparel_Exact_Camp,Adg_Exact,100,"80.00",10',
+      '"merino wool hiking socks",Broad,Smart_Broad_Camp,Adg_Broad,60,"108.00",2',
+      '"cheap camp stove",Broad,Camping_Broad_Camp,Adg_Broad,30,"45.00",1',
+    ].join("\n");
+
+    const csvBytes = enc.encode(csv);
+    const inPtr = exports.allocate_buffer(csvBytes.length);
+    new Uint8Array(memory.buffer, inPtr, csvBytes.length).set(csvBytes);
+    exports.engine_ingest_chunk(engine, inPtr, csvBytes.length, 1);
+    exports.deallocate_buffer(inPtr, csvBytes.length);
+
+    const outCap = 16384;
+    const outPtr = exports.allocate_buffer(outCap);
+
+    // Benchmark sub-10ms evaluation
+    const start = performance.now();
+    const written = exports.engine_detect_match_type_dilution(engine, outPtr, outCap);
+    const duration = performance.now() - start;
+
+    console.log(`Match-Type Dilution Index evaluated in ${duration.toFixed(3)}ms (sub-10ms mandate)`);
+    assert.ok(duration < 10.0, `Evaluation must be sub-10ms (was ${duration.toFixed(2)}ms)`);
+    assert.ok(written > 0, "Must export dilution report JSON");
+
+    const jsonStr = dec.decode(new Uint8Array(memory.buffer, outPtr, written));
+    exports.deallocate_buffer(outPtr, outCap);
+
+    const res = JSON.parse(jsonStr);
+    assert.strictEqual(res.diluted_queries_count, 2, "Must flag exactly 2 diluted queries");
+    assert.strictEqual(res.total_diluted_clicks, 110, "Total diluted clicks = 50 + 60 = 110");
+    assert.strictEqual(Math.round(res.budget_lost * 100), 14500, "Total budget lost = $85.00 + $60.00 = $145.00");
+
+    const runners = res.items.find((i: any) => i.query === "waterproof trail runners");
+    assert.ok(runners, "Must find 'waterproof trail runners'");
+    assert.strictEqual(Math.round(runners.broad_cpc * 100), 320);
+    assert.strictEqual(Math.round(runners.exact_cpc * 100), 150);
+    assert.strictEqual(Math.round(runners.budget_lost * 100), 8500);
+    assert.strictEqual(Math.round(runners.cpc_inflation_ratio * 100), 213);
+
+    const socks = res.items.find((i: any) => i.query === "merino wool hiking socks");
+    assert.ok(socks, "Must find 'merino wool hiking socks'");
+    assert.strictEqual(Math.round(socks.broad_cpc * 100), 180);
+    assert.strictEqual(Math.round(socks.exact_cpc * 100), 80);
+    assert.strictEqual(Math.round(socks.budget_lost * 100), 6000);
+    assert.strictEqual(Math.round(socks.cpc_inflation_ratio * 100), 225);
+
+    const stove = res.items.find((i: any) => i.query === "cheap camp stove");
+    assert.strictEqual(stove, undefined, "Query without exact benchmark must not be flagged");
+  } finally {
+    exports.engine_free(engine);
+  }
+});
