@@ -1,5 +1,5 @@
 /**
- * AppShell Layout Component (Phase 7 - Layout Symmetry Mandate)
+ * AppShell Layout Component (Layout Symmetry Mandate)
  *
  * Establishes bilateral visual symmetry across all major viewports.
  * Enforces standardized horizontal margin structures (max-w-7xl mx-auto px-4 sm:px-6 lg:px-8)
@@ -17,7 +17,11 @@ export interface AppShellProps {
 
 export const AppShell: React.FC<AppShellProps> = ({
   header,
-  footer,
+  footer = (
+    <footer className="text-center py-4 text-xs text-zinc-500 font-mono">
+      Sieve © 2026
+    </footer>
+  ),
   children,
   className = '',
 }) => {

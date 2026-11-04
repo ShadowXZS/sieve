@@ -1,5 +1,5 @@
 /**
- * Sieve Brand Vector Logo Component (Phase 7 - Brand Symmetry)
+ * Sieve Brand Vector Logo Component (Brand Symmetry)
  *
  * Wraps /sieve.svg with scalable dimensional tokens (xs to hero),
  * contrast adaptation (dark/light), and accessible role="img" ARIA declarations.

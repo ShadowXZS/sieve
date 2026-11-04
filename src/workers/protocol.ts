@@ -180,6 +180,7 @@ export interface IngestCsvChunkCommand {
   /** Zero-copy transferred chunk byte buffer */
   chunkBuffer: ArrayBuffer;
   isFinal: boolean;
+  targetCPA?: number;
 }
 
 export interface DetectPlatformSchemaCommand {
@@ -291,6 +292,7 @@ export interface IngestChunkCompleteResponse extends BaseWorkerResponse {
   type: 'INGEST_CHUNK_COMPLETE';
   statusCode: number;
   bytesConsumed?: number;
+  keywords?: PersistedNegativeKeyword[];
 }
 
 export interface DetectPlatformSchemaResponse extends BaseWorkerResponse {

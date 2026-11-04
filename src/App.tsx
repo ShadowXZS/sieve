@@ -25,7 +25,6 @@ import {
 } from './sync/filesystem.ts';
 import { defaultDb } from './storage/db.ts';
 import { useSieveStore } from './state/useSieveStore.ts';
-import type { PersistedNegativeKeyword } from './workers/protocol.ts';
 
 export const App: React.FC = () => {
   const [workerPool, setWorkerPool] = useState<SieveWorkerPool | null>(null);
@@ -34,7 +33,7 @@ export const App: React.FC = () => {
     '0000000000000000000000000000000000000000000000000000000000000000'
   );
 
-  const { keywords, filteredKeywords, kpi, setKeywords, isIngesting, ingestionProgress } =
+  const { keywords, filteredKeywords, kpi, isIngesting, ingestionProgress } =
     useSieveStore();
 
   useEffect(() => {
@@ -78,53 +77,17 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const handleGenerateDemoData = () => {
-    const demoKeywords: PersistedNegativeKeyword[] = [];
-    const count = 10000;
-    const matchTypes: Array<'exact' | 'phrase' | 'broad'> = ['exact', 'phrase', 'broad'];
-
-    for (let i = 0; i < count; i++) {
-      const matchType = matchTypes[i % 3];
-      const hasCollision = i % 8 === 0;
-      const term = `wasteful search term ${i}`;
-      let formatted = term;
-      if (hasCollision || matchType === 'exact') {
-        formatted = `[${term}]`;
-      } else if (matchType === 'phrase') {
-        formatted = `"${term}"`;
-      }
-
-      demoKeywords.push({
-        sha256Hash: `hash_demo_${i}_${Date.now()}`,
-        keyword: term,
-        matchType: hasCollision ? 'exact' : matchType,
-        formattedRule: formatted,
-        platform: 1,
-        confidenceScore: 0.65 + ((i * 7) % 35) / 100,
-        marginalWaste: Math.round(((i % 50) + 1) * 18.5 * 100) / 100,
-        hasCollision,
-        collidingSafeTerms: hasCollision
-          ? [`converting brand query ${i}`, `high value purchase ${i}`]
-          : undefined,
-        createdAt: Date.now() - i * 1000,
-      });
-    }
-
-    setKeywords(demoKeywords);
-  };
-
   return (
     <AppShell
       header={
         <BrandHeader
           workerConcurrency={workerPool?.concurrency || 4}
-          onLoadDemo={handleGenerateDemoData}
           onOpenPrivacyModal={() => setPrivacyModalOpen(true)}
         />
       }
       footer={
-        <footer className="border-t border-zinc-850 py-4 px-4 sm:px-6 lg:px-8 text-center text-xs text-zinc-500 font-mono tabular-nums">
-          Sieve Core v0.1.0 • 60/120 FPS Main Thread Guarantee • Sub-10ms WASM Pointer Re-evaluations
+        <footer className="text-center py-4 text-xs text-zinc-500 font-mono">
+          Sieve © 2026
         </footer>
       }
     >
@@ -168,4 +131,3 @@ export const App: React.FC = () => {
     </AppShell>
   );
 };
-

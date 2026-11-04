@@ -1,5 +1,5 @@
 /**
- * ProcessingOverlay Feedback Component (Phase 7 - Micro-interactions)
+ * ProcessingOverlay Feedback Component (Micro-interactions)
  *
  * Full-viewport or container modal overlay utilizing a centered vector pulse
  * animation with SieveLogo, tabular numerical progress, and zero layout shift.

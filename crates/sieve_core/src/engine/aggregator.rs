@@ -122,6 +122,7 @@ pub struct SieveEngine {
     pub aggregator: NGramAggregator,
     pub header_parsed: bool,
     pub query_auction_map: HashMap<Box<[u8]>, Vec<QueryAuctionRecord>>,
+    pub remainder_buf: Vec<u8>,
     // Consecutive repeated query acceleration cache
     last_query_buf: [u8; 128],
     last_query_len: usize,
@@ -143,6 +144,7 @@ impl SieveEngine {
             aggregator: NGramAggregator::new(),
             header_parsed: false,
             query_auction_map: HashMap::new(),
+            remainder_buf: Vec::with_capacity(1024),
             last_query_buf: [0u8; 128],
             last_query_len: 0,
             cached_entry_ptrs: [core::ptr::null_mut(); 32],
@@ -156,18 +158,23 @@ impl SieveEngine {
         self.aggregator.reset();
         self.header_parsed = false;
         self.query_auction_map.clear();
+        self.remainder_buf.clear();
         self.last_query_len = 0;
         self.cached_entries_count = 0;
     }
 
-    /// Fast streaming chunk ingestion.
-    pub fn ingest_chunk(&mut self, chunk: &[u8], _is_final: bool) -> i32 {
+    /// Fast streaming chunk ingestion with chunk boundary line reconstruction.
+    pub fn ingest_chunk(&mut self, chunk: &[u8], is_final: bool) -> i32 {
         if chunk.is_empty() {
+            if is_final && !self.remainder_buf.is_empty() {
+                let remainder = core::mem::take(&mut self.remainder_buf);
+                return self.ingest_slice(&remainder);
+            }
             return 0;
         }
 
-        // Check for UTF-16LE BOM: [0xFF, 0xFE]
-        if chunk.len() >= 2 && chunk[0] == 0xFF && chunk[1] == 0xFE {
+        // Check for UTF-16LE BOM: [0xFF, 0xFE] on initial chunk
+        if !self.header_parsed && chunk.len() >= 2 && chunk[0] == 0xFF && chunk[1] == 0xFE {
             let utf16_slice = &chunk[2..];
             let mut decoded_ascii = Vec::with_capacity(utf16_slice.len() / 2);
             let mut i = 0;
@@ -181,43 +188,132 @@ impl SieveEngine {
                 }
                 i += 2;
             }
-            self.ingest_slice(&decoded_ascii)
+            return self.process_streaming_bytes(&decoded_ascii, is_final);
+        }
+
+        self.process_streaming_bytes(chunk, is_final)
+    }
+
+    fn process_streaming_bytes(&mut self, mut chunk: &[u8], is_final: bool) -> i32 {
+        // Strip UTF-8 BOM if this is the start of the stream
+        if !self.header_parsed
+            && self.remainder_buf.is_empty()
+            && chunk.len() >= 3
+            && chunk[0] == 0xEF
+            && chunk[1] == 0xBB
+            && chunk[2] == 0xBF
+        {
+            chunk = &chunk[3..];
+        }
+
+        // If we have remainder bytes from the previous chunk, glue them with the first line of current chunk
+        let mut rest_of_chunk = chunk;
+        if !self.remainder_buf.is_empty() {
+            if let Some(pos) = memchr::memchr(b'\n', chunk) {
+                // Complete line formed!
+                self.remainder_buf.extend_from_slice(&chunk[..=pos]);
+                let complete_line = core::mem::take(&mut self.remainder_buf);
+                self.ingest_slice(&complete_line);
+                rest_of_chunk = &chunk[pos + 1..];
+            } else {
+                // Whole chunk is still part of the incomplete line!
+                self.remainder_buf.extend_from_slice(chunk);
+                if is_final {
+                    let complete_line = core::mem::take(&mut self.remainder_buf);
+                    self.ingest_slice(&complete_line);
+                }
+                return 0;
+            }
+        }
+
+        if rest_of_chunk.is_empty() {
+            return 0;
+        }
+
+        if !is_final {
+            // Find the last newline in rest_of_chunk
+            if let Some(last_nl) = memchr::memrchr(b'\n', rest_of_chunk) {
+                let complete_part = &rest_of_chunk[..=last_nl];
+                let trailing_incomplete = &rest_of_chunk[last_nl + 1..];
+                self.remainder_buf.extend_from_slice(trailing_incomplete);
+                self.ingest_slice(complete_part)
+            } else {
+                // No newline in rest_of_chunk, buffer all of it
+                self.remainder_buf.extend_from_slice(rest_of_chunk);
+                0
+            }
         } else {
-            self.ingest_slice(chunk)
+            // is_final: ingest all remaining bytes
+            self.ingest_slice(rest_of_chunk)
         }
     }
 
     fn ingest_slice(&mut self, mut chunk: &[u8]) -> i32 {
-        // Parse header on initial chunk
+        // Strip UTF-8 BOM if present
+        if chunk.len() >= 3 && chunk[0] == 0xEF && chunk[1] == 0xBB && chunk[2] == 0xBF {
+            chunk = &chunk[3..];
+        }
+
+        // Parse header on initial chunk, scanning past multi-line report headers
         if !self.header_parsed {
             let schema = detect_platform_schema(chunk);
             self.schema_mapping.schema = schema;
 
-            let line_end = memchr::memchr(b'\n', chunk).unwrap_or(chunk.len());
-            let header_line = &chunk[..line_end];
+            let mut remaining = chunk;
+            while !self.header_parsed && !remaining.is_empty() {
+                let line_end = memchr::memchr(b'\n', remaining).unwrap_or(remaining.len());
+                let mut line = &remaining[..line_end];
+                if line.ends_with(b"\r") {
+                    line = &line[..line.len() - 1];
+                }
 
-            self.delimiter = if header_line.contains(&b'\t') {
-                b'\t'
-            } else {
-                b','
-            };
+                let next_chunk = if line_end < remaining.len() {
+                    &remaining[line_end + 1..]
+                } else {
+                    &[]
+                };
 
-            let mut header_fields: [&[u8]; 32] = [&[]; 32];
-            let field_count = split_fields(header_line, self.delimiter, &mut header_fields);
+                // Check for delimiter preference (tab or comma)
+                let delim = if line.contains(&b'\t') { b'\t' } else { b',' };
 
-            self.schema_mapping = resolve_schema_mapping(&header_fields[..field_count]);
-            self.schema_mapping.schema = if schema != PlatformSchema::Unknown {
-                schema
-            } else {
-                PlatformSchema::GoogleAds
-            };
-            self.header_parsed = true;
+                if is_column_header_line(line, delim) {
+                    self.delimiter = delim;
+                    let mut header_fields: [&[u8]; 32] = [&[]; 32];
+                    let field_count = split_fields(line, delim, &mut header_fields);
+                    self.schema_mapping = resolve_schema_mapping(&header_fields[..field_count]);
+                    self.schema_mapping.schema = if schema != PlatformSchema::Unknown {
+                        schema
+                    } else {
+                        PlatformSchema::GoogleAds
+                    };
+                    self.header_parsed = true;
+                    chunk = next_chunk;
+                    break;
+                }
 
-            chunk = if line_end < chunk.len() {
-                &chunk[line_end + 1..]
-            } else {
-                &[]
-            };
+                remaining = next_chunk;
+            }
+
+            // Fallback if no explicit column header matched but chunk is present
+            if !self.header_parsed {
+                let line_end = memchr::memchr(b'\n', chunk).unwrap_or(chunk.len());
+                let header_line = &chunk[..line_end];
+                self.delimiter = if header_line.contains(&b'\t') { b'\t' } else { b',' };
+                let mut header_fields: [&[u8]; 32] = [&[]; 32];
+                let field_count = split_fields(header_line, self.delimiter, &mut header_fields);
+                self.schema_mapping = resolve_schema_mapping(&header_fields[..field_count]);
+                self.schema_mapping.schema = if schema != PlatformSchema::Unknown {
+                    schema
+                } else {
+                    PlatformSchema::GoogleAds
+                };
+                self.header_parsed = true;
+                chunk = if line_end < chunk.len() {
+                    &chunk[line_end + 1..]
+                } else {
+                    &[]
+                };
+            }
         }
 
         let mapping = self.schema_mapping;
@@ -244,6 +340,15 @@ impl SieveEngine {
                     } else {
                         &[]
                     };
+
+                    if query_field.is_empty() {
+                        chunk = if line_end < chunk.len() {
+                            &chunk[line_end + 1..]
+                        } else {
+                            &[]
+                        };
+                        continue;
+                    }
 
                     let clicks = if mapping.clicks_col < count {
                         parse_localized_number(fields[mapping.clicks_col])
@@ -288,10 +393,18 @@ impl SieveEngine {
                             let is_pmax = contains_ignore_case(campaign_field, b"pmax")
                                 || contains_ignore_case(campaign_field, b"performance max");
 
-                            self.query_auction_map
+                            let records = self.query_auction_map
                                 .entry(Box::from(query_field))
-                                .or_default()
-                                .push(QueryAuctionRecord {
+                                .or_default();
+
+                            if let Some(existing) = records.iter_mut().find(|r| {
+                                r.campaign.as_ref() == campaign_field && r.adgroup.as_ref() == adgroup_field
+                            }) {
+                                existing.clicks += clicks_u64;
+                                existing.cost += cost;
+                                existing.conversions += conversions;
+                            } else {
+                                records.push(QueryAuctionRecord {
                                     campaign: Box::from(campaign_field),
                                     adgroup: Box::from(adgroup_field),
                                     clicks: clicks_u64,
@@ -299,6 +412,7 @@ impl SieveEngine {
                                     conversions,
                                     is_pmax,
                                 });
+                            }
                         }
 
                         // Check if current query matches the cached consecutive query
@@ -563,6 +677,131 @@ impl SieveEngine {
         let _ = cursor.write_str("]");
         cursor.pos
     }
+
+    /// Exports all unique search queries recorded in query_auction_map as JSON.
+    pub fn export_query_records(&self, output: &mut [u8]) -> usize {
+        struct Cursor<'a> {
+            buf: &'a mut [u8],
+            pos: usize,
+        }
+
+        impl<'a> Write for Cursor<'a> {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let remaining = self.buf.len().saturating_sub(self.pos);
+                let to_copy = bytes.len().min(remaining);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut cursor = Cursor {
+            buf: output,
+            pos: 0,
+        };
+        let _ = cursor.write_str("[");
+        let mut first = true;
+
+        for (query, records) in &self.query_auction_map {
+            let mut total_clicks = 0u64;
+            let mut total_cost = 0.0f64;
+            let mut total_conversions = 0.0f64;
+            let mut first_campaign: &[u8] = &[];
+            let mut first_adgroup: &[u8] = &[];
+            let mut unique_campaigns: Vec<&[u8]> = Vec::new();
+
+            for r in records {
+                total_clicks += r.clicks;
+                total_cost += r.cost;
+                total_conversions += r.conversions;
+                if first_campaign.is_empty() && !r.campaign.is_empty() {
+                    first_campaign = &r.campaign;
+                }
+                if first_adgroup.is_empty() && !r.adgroup.is_empty() {
+                    first_adgroup = &r.adgroup;
+                }
+                if !unique_campaigns.contains(&r.campaign.as_ref()) {
+                    unique_campaigns.push(&r.campaign);
+                }
+            }
+
+            if !first {
+                let _ = cursor.write_str(",");
+            }
+            first = false;
+
+            let has_collision = unique_campaigns.len() > 1;
+
+            let _ = cursor.write_str(r#"{"query":""#);
+            write_escaped_json_str(&mut cursor, query);
+            let _ = cursor.write_str(r#"","campaign":""#);
+            write_escaped_json_str(&mut cursor, first_campaign);
+            let _ = cursor.write_str(r#"","adgroup":""#);
+            write_escaped_json_str(&mut cursor, first_adgroup);
+            let _ = write!(
+                cursor,
+                r#"","clicks":{},"cost":{:.2},"conversions":{:.2},"has_collision":{}}}"#,
+                total_clicks, total_cost, total_conversions, has_collision
+            );
+        }
+
+        let _ = cursor.write_str("]");
+        cursor.pos
+    }
+}
+
+fn write_escaped_json_str<W: core::fmt::Write>(w: &mut W, bytes: &[u8]) {
+    let s = core::str::from_utf8(bytes).unwrap_or("");
+    for c in s.chars() {
+        match c {
+            '"' => { let _ = w.write_str("\\\""); }
+            '\\' => { let _ = w.write_str("\\\\"); }
+            '\n' => { let _ = w.write_str("\\n"); }
+            '\r' => { let _ = w.write_str("\\r"); }
+            '\t' => { let _ = w.write_str("\\t"); }
+            _ => { let _ = w.write_char(c); }
+        }
+    }
+}
+
+#[inline(always)]
+fn is_column_header_line(line: &[u8], delim: u8) -> bool {
+    let mut fields: [&[u8]; 32] = [&[]; 32];
+    let field_count = split_fields(line, delim, &mut fields);
+    if field_count < 2 {
+        return false;
+    }
+
+    let mut has_query = false;
+    let mut has_metric_or_campaign = false;
+
+    for &field in &fields[..field_count] {
+        let f = trim_quotes(field);
+        if contains_ignore_case(f, b"customer search term")
+            || contains_ignore_case(f, b"search query")
+            || contains_ignore_case(f, b"search term")
+            || contains_ignore_case(f, b"search keyword")
+            || contains_ignore_case(f, b"keyword")
+            || contains_ignore_case(f, b"query")
+        {
+            has_query = true;
+        }
+        if contains_ignore_case(f, b"clicks")
+            || contains_ignore_case(f, b"cost")
+            || contains_ignore_case(f, b"spend")
+            || contains_ignore_case(f, b"impressions")
+            || contains_ignore_case(f, b"conversions")
+            || contains_ignore_case(f, b"all conv.")
+            || contains_ignore_case(f, b"campaign")
+            || contains_ignore_case(f, b"ad group")
+            || contains_ignore_case(f, b"adgroup")
+        {
+            has_metric_or_campaign = true;
+        }
+    }
+
+    has_query && has_metric_or_campaign
 }
 
 /// Splits a CSV/TSV row into field byte slices using memchr.

@@ -1,5 +1,5 @@
 /**
- * Web Worker Processing HUD (Phase 7 - Brand Symmetry & UI Polish)
+ * Web Worker Processing HUD (Brand Symmetry & UI Polish)
  *
  * Real-time operational heads-up display rendering WebAssembly worker pool status,
  * linear memory allocation throughput, transferable buffer metrics, and ingestion progress.

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "npm run build:wasm && vite build",
     "preview": "vite preview",
-    "build:wasm": "cargo build --target wasm32-unknown-unknown --release --offline -p sieve_core && wasm-bindgen target/wasm32-unknown-unknown/release/sieve_core.wasm --out-dir crates/sieve_core/pkg --target web",
+    "build:wasm": "cargo build --target wasm32-unknown-unknown --release --offline -p sieve_core && wasm-bindgen target/wasm32-unknown-unknown/release/sieve_core.wasm --out-dir crates/sieve_core/pkg --target web && cp crates/sieve_core/pkg/sieve_core_bg.wasm Public/sieve_core_bg.wasm",
     "test:rs": "cargo test --offline -p sieve_core",
     "test:wasm": "node --import tsx --test tests/wasm/*.test.ts",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",

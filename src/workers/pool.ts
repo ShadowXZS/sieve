@@ -21,6 +21,7 @@ export interface WorkerPoolOptions {
 interface QueuedTask {
   command: WorkerCommand;
   transferables: Transferable[];
+  targetWorkerId?: number;
   resolve: (value: WorkerResponse) => void;
   reject: (reason?: any) => void;
 }
@@ -137,7 +138,12 @@ export class SieveWorkerPool {
     return this.taskQueue.length;
   }
 
-  public async execute(command: WorkerCommand): Promise<WorkerResponse> {
+  public getAvailableWorkerId(): number {
+    const idle = this.findNextAvailableWorker();
+    return idle ? idle.id : this.roundRobinIdx;
+  }
+
+  public async execute(command: WorkerCommand, targetWorkerId?: number): Promise<WorkerResponse> {
     if (this.terminated) {
       throw new Error('SieveWorkerPool has been terminated');
     }
@@ -145,14 +151,23 @@ export class SieveWorkerPool {
     const transferables = getTransferables(command);
 
     return new Promise<WorkerResponse>((resolve, reject) => {
-      const task: QueuedTask = { command, transferables, resolve, reject };
+      const task: QueuedTask = { command, transferables, targetWorkerId, resolve, reject };
 
-      // Attempt to schedule immediately on an idle worker
-      const idleWorker = this.findNextAvailableWorker();
-      if (idleWorker) {
-        this.runTaskOnWorker(idleWorker, task);
+      if (targetWorkerId !== undefined && targetWorkerId >= 0 && targetWorkerId < this.workers.length) {
+        const targetWorker = this.workers[targetWorkerId];
+        if (!targetWorker.busy && !targetWorker.terminated) {
+          this.runTaskOnWorker(targetWorker, task);
+        } else {
+          this.taskQueue.push(task);
+        }
       } else {
-        this.taskQueue.push(task);
+        // Attempt to schedule immediately on an idle worker
+        const idleWorker = this.findNextAvailableWorker();
+        if (idleWorker) {
+          this.runTaskOnWorker(idleWorker, task);
+        } else {
+          this.taskQueue.push(task);
+        }
       }
     });
   }
@@ -160,22 +175,31 @@ export class SieveWorkerPool {
   public async executeIngestion(
     taskId: string,
     chunkBuffer: ArrayBuffer,
-    isFinal: boolean
-  ): Promise<{ statusCode: number; workerId: number; bytesConsumed?: number }> {
+    isFinal: boolean,
+    workerId?: number,
+    targetCPA?: number
+  ): Promise<{
+    statusCode: number;
+    workerId: number;
+    bytesConsumed?: number;
+    keywords?: import('./protocol.ts').PersistedNegativeKeyword[];
+  }> {
     const command: WorkerCommand = {
       type: 'INGEST_CSV_CHUNK',
       requestId: taskId,
       chunkBuffer,
       isFinal,
+      targetCPA,
     };
 
-    const res = await this.execute(command);
+    const res = await this.execute(command, workerId);
     if (res.type === 'INGEST_CHUNK_COMPLETE') {
       const completeRes = res as IngestChunkCompleteResponse;
       return {
         statusCode: completeRes.statusCode,
         workerId: res.workerId ?? 0,
         bytesConsumed: completeRes.bytesConsumed,
+        keywords: completeRes.keywords,
       };
     } else if (res.type === 'WORKER_ERROR') {
       const err = new Error((res as WorkerErrorResponse).error);
@@ -218,6 +242,17 @@ export class SieveWorkerPool {
     worker.busy = false;
 
     if (this.taskQueue.length > 0) {
+      // Find first task targeted to this worker or unassigned
+      const taskIdx = this.taskQueue.findIndex(
+        (t) => t.targetWorkerId === undefined || t.targetWorkerId === worker.id
+      );
+      if (taskIdx >= 0) {
+        const [nextTask] = this.taskQueue.splice(taskIdx, 1);
+        this.runTaskOnWorker(worker, nextTask);
+        return;
+      }
+
+      this.roundRobinIdx = (worker.id + 1) % this.concurrency;
       const nextWorker = this.findNextAvailableWorker() || worker;
       const nextTask = this.taskQueue.shift()!;
       this.runTaskOnWorker(nextWorker, nextTask);

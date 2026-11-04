@@ -549,3 +549,82 @@ test('ReportConfigModal mounts on PDF button trigger, adjusts reallocation param
   assert.strictEqual(screen.queryByRole('dialog'), null, 'Report modal must close on Escape key');
 });
 
+test('FileDropzone: Ingesting CSV file populates useSieveStore keywords and updates SummaryDashboard KPI', async () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  const mockExtractedKeywords: PersistedNegativeKeyword[] = [
+    {
+      sha256Hash: 'hash_csv_upload_1',
+      keyword: 'cheap running shoes',
+      matchType: 'phrase',
+      formattedRule: '"cheap running shoes"',
+      platform: 1,
+      confidenceScore: 0.95,
+      marginalWaste: 150.0,
+      hasCollision: false,
+      clicks: 40,
+      cost: 150.0,
+      conversions: 0,
+      createdAt: Date.now(),
+    },
+    {
+      sha256Hash: 'hash_csv_upload_2',
+      keyword: 'free download shoes',
+      matchType: 'exact',
+      formattedRule: '[free download shoes]',
+      platform: 1,
+      confidenceScore: 0.99,
+      marginalWaste: 250.0,
+      hasCollision: true,
+      collidingSafeTerms: ['converting shoes'],
+      clicks: 80,
+      cost: 250.0,
+      conversions: 0,
+      createdAt: Date.now(),
+    },
+  ];
+
+  const mockWorkerPool = {
+    executeIngestion: async () => ({
+      statusCode: 0,
+      workerId: 0,
+      bytesConsumed: 1024,
+      keywords: mockExtractedKeywords,
+    }),
+  };
+
+  const { container } = render(
+    <div>
+      <FileDropzone workerPool={mockWorkerPool as any} />
+      <SummaryDashboard />
+    </div>
+  );
+
+  const file = new File(
+    ['Search keyword,Clicks,Cost,Conversions\n"cheap running shoes",40,150.00,0\n'],
+    'google_search_terms.csv',
+    { type: 'text/csv' }
+  );
+
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  assert.ok(input, 'File input must exist');
+
+  await act(async () => {
+    fireEvent.change(input, { target: { files: [file] } });
+  });
+
+  // Verify Zustand store received keywords from worker
+  const storeKeywords = useSieveStore.getState().keywords;
+  assert.strictEqual(storeKeywords.length, 2, 'Store must contain 2 ingested keywords');
+  assert.strictEqual(storeKeywords[0].keyword, 'cheap running shoes');
+  assert.strictEqual(storeKeywords[1].keyword, 'free download shoes');
+
+  // Verify KPI metrics computed
+  const kpi = useSieveStore.getState().kpi;
+  assert.strictEqual(kpi.totalKeywords, 2);
+  assert.strictEqual(kpi.totalWaste, 400.0);
+  assert.strictEqual(kpi.collisionCount, 1);
+  assert.strictEqual(kpi.exactLockedCount, 1);
+});
+

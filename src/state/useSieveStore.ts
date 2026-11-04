@@ -39,11 +39,13 @@ export interface SieveState {
   ingestionProgress: number;
   ingestedFiles: IngestedFileInfo[];
   selectedKeyword: PersistedNegativeKeyword | null;
+  errorMessage: string | null;
 
   // Actions
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
   updateThresholds: (partial: Partial<SieveThresholds>) => void;
   setIngesting: (isIngesting: boolean, progress?: number) => void;
+  setErrorMessage: (msg: string | null) => void;
   addIngestedFiles: (files: File[]) => void;
   setSelectedKeyword: (kw: PersistedNegativeKeyword | null) => void;
   reset: () => void;
@@ -56,12 +58,33 @@ const DEFAULT_THRESHOLDS: SieveThresholds = {
   targetCPA: 50,
 };
 
+/**
+ * Strict Marginal Waste Definition:
+ * - Non-converting terms (Conversions == 0): Marginal Waste = Total Spend.
+ * - Converting terms (Conversions > 0): Marginal Waste = Math.max(0, Total Spend - (Conversions * Target CPA)).
+ */
+export function calculateMarginalWaste(
+  cost: number | undefined,
+  conversions: number | undefined,
+  targetCPA: number,
+  fallbackWaste: number = 0
+): number {
+  if (cost !== undefined && conversions !== undefined) {
+    if (conversions <= 0) {
+      return Math.round(cost * 100) / 100;
+    }
+    return Math.max(0, Math.round((cost - conversions * targetCPA) * 100) / 100);
+  }
+  return fallbackWaste;
+}
+
 function filterAndComputeKPI(
   keywords: PersistedNegativeKeyword[],
   thresholds: SieveThresholds
 ): { filtered: PersistedNegativeKeyword[]; kpi: KPISummary } {
   const minConfidence = thresholds.confidenceScore;
   const maxWaste = thresholds.maxMarginalWaste;
+  const targetCPA = thresholds.targetCPA;
   const filtered: PersistedNegativeKeyword[] = [];
   const len = keywords.length;
 
@@ -72,6 +95,9 @@ function filterAndComputeKPI(
 
   for (let i = 0; i < len; i++) {
     const k = keywords[i];
+    if (k.cost !== undefined && k.conversions !== undefined) {
+      k.marginalWaste = calculateMarginalWaste(k.cost, k.conversions, targetCPA, k.marginalWaste);
+    }
     if (k.confidenceScore >= minConfidence && k.marginalWaste <= maxWaste) {
       filtered.push(k);
       totalWaste += k.marginalWaste || 0;
@@ -110,6 +136,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   ingestionProgress: 0,
   ingestedFiles: [],
   selectedKeyword: null,
+  errorMessage: null,
 
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
     const thresholds = get().thresholds;
@@ -136,6 +163,10 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     set({ isIngesting, ingestionProgress: progress });
   },
 
+  setErrorMessage: (msg: string | null) => {
+    set({ errorMessage: msg, isIngesting: false });
+  },
+
   addIngestedFiles: (files: File[]) => {
     const nextFiles: IngestedFileInfo[] = files.map((f) => ({
       name: f.name,
@@ -160,6 +191,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       ingestionProgress: 0,
       ingestedFiles: [],
       selectedKeyword: null,
+      errorMessage: null,
     });
   },
 }));

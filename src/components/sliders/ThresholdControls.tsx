@@ -91,9 +91,6 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             </p>
           </div>
         </div>
-        <span className="text-[11px] font-mono tabular-nums px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700/60">
-          60/120 FPS Validated
-        </span>
       </div>
 
       {/* Balanced Two-Column Surface Grid */}

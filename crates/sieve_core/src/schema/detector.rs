@@ -72,16 +72,100 @@ pub fn starts_with_ignore_case(haystack: &[u8], needle: &[u8]) -> bool {
         .all(|(&a, &b)| a.eq_ignore_ascii_case(&b))
 }
 
+/// Helper function to check equality case-insensitively on &[u8].
+#[inline(always)]
+pub fn equals_ignore_case(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).all(|(&x, &y)| x.eq_ignore_ascii_case(&y))
+}
+
+#[inline(always)]
+fn trim_field(field: &[u8]) -> &[u8] {
+    let mut slice = field;
+    while slice.starts_with(b" ") || slice.starts_with(b"\t") {
+        slice = &slice[1..];
+    }
+    while slice.ends_with(b" ") || slice.ends_with(b"\t") {
+        slice = &slice[..slice.len() - 1];
+    }
+    if slice.len() >= 2 && slice[0] == b'"' && slice[slice.len() - 1] == b'"' {
+        slice = &slice[1..slice.len() - 1];
+    }
+    while slice.starts_with(b" ") || slice.starts_with(b"\t") {
+        slice = &slice[1..];
+    }
+    while slice.ends_with(b" ") || slice.ends_with(b"\t") {
+        slice = &slice[..slice.len() - 1];
+    }
+    slice
+}
+
+/// Scans streaming CSV lines and returns the byte offset where the recognized column definition row begins.
+/// Skips initial preamble metadata rows (e.g., "Search terms report", date ranges, account identifiers).
+pub fn find_header_row_offset(bytes: &[u8]) -> usize {
+    let mut offset = 0;
+    let mut slice = bytes;
+
+    // Skip UTF-8 BOM if present
+    if slice.len() >= 3 && slice[0] == 0xEF && slice[1] == 0xBB && slice[2] == 0xBF {
+        offset += 3;
+        slice = &slice[3..];
+    }
+
+    while !slice.is_empty() {
+        let line_end = memchr::memchr(b'\n', slice).unwrap_or(slice.len());
+        let mut line = &slice[..line_end];
+        if line.ends_with(b"\r") {
+            line = &line[..line.len() - 1];
+        }
+
+        let has_query = contains_ignore_case(line, b"search term")
+            || contains_ignore_case(line, b"customer search term")
+            || contains_ignore_case(line, b"search query")
+            || contains_ignore_case(line, b"search keyword")
+            || contains_ignore_case(line, b"keyword")
+            || contains_ignore_case(line, b"query");
+
+        let has_metric = contains_ignore_case(line, b"clicks")
+            || contains_ignore_case(line, b"cost")
+            || contains_ignore_case(line, b"spend")
+            || contains_ignore_case(line, b"impressions")
+            || contains_ignore_case(line, b"conversions")
+            || contains_ignore_case(line, b"all conv.")
+            || contains_ignore_case(line, b"7 day total sales");
+
+        if has_query && has_metric {
+            return offset;
+        }
+
+        if line_end < slice.len() {
+            offset += line_end + 1;
+            slice = &slice[line_end + 1..];
+        } else {
+            break;
+        }
+    }
+
+    0
+}
+
 /// Detects advertising platform schema from streaming header bytes.
-pub fn detect_platform_schema(header_bytes: &[u8]) -> PlatformSchema {
+pub fn detect_platform_schema(mut header_bytes: &[u8]) -> PlatformSchema {
     if header_bytes.is_empty() {
         return PlatformSchema::Unknown;
+    }
+
+    // Strip UTF-8 BOM: [0xEF, 0xBB, 0xBF]
+    if header_bytes.len() >= 3 && header_bytes[0] == 0xEF && header_bytes[1] == 0xBB && header_bytes[2] == 0xBF {
+        header_bytes = &header_bytes[3..];
     }
 
     // Check for UTF-16LE BOM: [0xFF, 0xFE]
     if header_bytes.len() >= 2 && header_bytes[0] == 0xFF && header_bytes[1] == 0xFE {
         let utf16_slice = &header_bytes[2..];
-        let mut ascii_buf = [0u8; 1024];
+        let mut ascii_buf = [0u8; 2048];
         let mut count = 0;
         let mut i = 0;
         while i + 1 < utf16_slice.len() && count < ascii_buf.len() {
@@ -97,13 +181,28 @@ pub fn detect_platform_schema(header_bytes: &[u8]) -> PlatformSchema {
         return detect_ascii_schema(ascii_header);
     }
 
-    let first_line_end = header_bytes
-        .iter()
-        .position(|&b| b == b'\n' || b == b'\r')
-        .unwrap_or(header_bytes.len());
-    let header_line = &header_bytes[..first_line_end];
+    // Check for UTF-16BE BOM: [0xFE, 0xFF]
+    if header_bytes.len() >= 2 && header_bytes[0] == 0xFE && header_bytes[1] == 0xFF {
+        let utf16_slice = &header_bytes[2..];
+        let mut ascii_buf = [0u8; 2048];
+        let mut count = 0;
+        let mut i = 0;
+        while i + 1 < utf16_slice.len() && count < ascii_buf.len() {
+            let high = utf16_slice[i];
+            let low = utf16_slice[i + 1];
+            if high == 0 {
+                ascii_buf[count] = low;
+                count += 1;
+            }
+            i += 2;
+        }
+        let ascii_header = &ascii_buf[..count];
+        return detect_ascii_schema(ascii_header);
+    }
 
-    detect_ascii_schema(header_line)
+    // Sniff across the header chunk (up to 4KB) to support multi-line report headers
+    let sniff_len = header_bytes.len().min(4096);
+    detect_ascii_schema(&header_bytes[..sniff_len])
 }
 
 fn detect_ascii_schema(header: &[u8]) -> PlatformSchema {
@@ -115,18 +214,26 @@ fn detect_ascii_schema(header: &[u8]) -> PlatformSchema {
         return PlatformSchema::AmazonPPC;
     }
 
-    // Google Ads signature
-    if contains_ignore_case(header, b"search keyword")
+    // Microsoft Advertising signature
+    if contains_ignore_case(header, b"all conv.")
+        || (contains_ignore_case(header, b"search term") && contains_ignore_case(header, b"spend"))
+    {
+        return PlatformSchema::MicrosoftAdvertising;
+    }
+
+    // Google Ads signature (including multi-line reports with "Search terms report", "Search term", etc.)
+    if contains_ignore_case(header, b"search terms report")
+        || contains_ignore_case(header, b"search keyword")
         || contains_ignore_case(header, b"search query")
+        || (contains_ignore_case(header, b"search term") && contains_ignore_case(header, b"cost"))
         || (contains_ignore_case(header, b"keyword") && contains_ignore_case(header, b"cost"))
+        || contains_ignore_case(header, b"google ads")
     {
         return PlatformSchema::GoogleAds;
     }
 
-    // Microsoft Advertising signature
-    if contains_ignore_case(header, b"search term")
-        || contains_ignore_case(header, b"all conv.")
-    {
+    // Fallback for Microsoft Advertising if it has search term without cost
+    if contains_ignore_case(header, b"search term") {
         return PlatformSchema::MicrosoftAdvertising;
     }
 
@@ -136,32 +243,118 @@ fn detect_ascii_schema(header: &[u8]) -> PlatformSchema {
 /// Resolves column indices for the given platform schema from header fields.
 pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
     let mut mapping = SchemaMapping::default();
+    let mut query_priority = 0;
+    let mut clicks_priority = 0;
+    let mut cost_priority = 0;
+    let mut conv_priority = 0;
 
-    for (idx, &field) in fields.iter().enumerate() {
-        if contains_ignore_case(field, b"search keyword")
+    for (idx, &raw_field) in fields.iter().enumerate() {
+        let field = trim_field(raw_field);
+
+        // Query column resolution with priority
+        if contains_ignore_case(field, b"customer search term")
             || contains_ignore_case(field, b"search query")
-            || contains_ignore_case(field, b"customer search term")
             || contains_ignore_case(field, b"search term")
-            || contains_ignore_case(field, b"keyword")
         {
-            mapping.query_col = idx;
-        } else if contains_ignore_case(field, b"clicks") {
-            mapping.clicks_col = idx;
-        } else if contains_ignore_case(field, b"cost")
-            || contains_ignore_case(field, b"spend")
-        {
-            mapping.cost_col = idx;
-        } else if contains_ignore_case(field, b"conversions")
+            if query_priority <= 3 {
+                mapping.query_col = idx;
+                query_priority = 3;
+            }
+        } else if contains_ignore_case(field, b"search keyword") {
+            if query_priority < 2 {
+                mapping.query_col = idx;
+                query_priority = 2;
+            }
+        } else if contains_ignore_case(field, b"keyword") || contains_ignore_case(field, b"query") {
+            if query_priority < 1 {
+                mapping.query_col = idx;
+                query_priority = 1;
+            }
+        }
+
+        // Clicks column resolution: avoid CTR / rate / cost / cpc
+        let is_click_candidate = contains_ignore_case(field, b"click")
+            && !contains_ignore_case(field, b"rate")
+            && !contains_ignore_case(field, b"ctr")
+            && !contains_ignore_case(field, b"cost")
+            && !contains_ignore_case(field, b"cpc")
+            && !contains_ignore_case(field, b"thru")
+            && !contains_ignore_case(field, b"through");
+
+        if is_click_candidate {
+            let priority = if equals_ignore_case(field, b"clicks") {
+                3
+            } else if equals_ignore_case(field, b"total clicks") {
+                2
+            } else {
+                1
+            };
+            if priority > clicks_priority {
+                mapping.clicks_col = idx;
+                clicks_priority = priority;
+            }
+        }
+
+        // Cost / Spend column resolution: avoid Cost / conv, Cost per click, Avg CPC, etc.
+        let is_cost_candidate = (contains_ignore_case(field, b"cost") || contains_ignore_case(field, b"spend"))
+            && !contains_ignore_case(field, b"conv")
+            && !contains_ignore_case(field, b"click")
+            && !contains_ignore_case(field, b"cpc")
+            && !contains_ignore_case(field, b"ctr")
+            && !contains_ignore_case(field, b"rate")
+            && !contains_ignore_case(field, b"avg")
+            && !contains_ignore_case(field, b"margin");
+
+        if is_cost_candidate {
+            let priority = if equals_ignore_case(field, b"cost") || equals_ignore_case(field, b"spend") {
+                3
+            } else if equals_ignore_case(field, b"total cost") || equals_ignore_case(field, b"total spend") {
+                2
+            } else {
+                1
+            };
+            if priority > cost_priority {
+                mapping.cost_col = idx;
+                cost_priority = priority;
+            }
+        }
+
+        // Conversions column resolution: avoid Cost / conv, Conv. value, Conversion rate, CPA, etc.
+        let is_conv_candidate = (contains_ignore_case(field, b"conversions")
             || contains_ignore_case(field, b"all conv.")
             || contains_ignore_case(field, b"7 day total sales")
-        {
-            mapping.conversions_col = idx;
-        } else if contains_ignore_case(field, b"campaign") {
+            || equals_ignore_case(field, b"conv.")
+            || equals_ignore_case(field, b"conv"))
+            && !contains_ignore_case(field, b"cost")
+            && !contains_ignore_case(field, b"rate")
+            && !contains_ignore_case(field, b"val")
+            && !contains_ignore_case(field, b"cpa")
+            && !contains_ignore_case(field, b"per");
+
+        if is_conv_candidate {
+            let priority = if equals_ignore_case(field, b"conversions")
+                || equals_ignore_case(field, b"all conv.")
+                || equals_ignore_case(field, b"7 day total sales")
+            {
+                3
+            } else if equals_ignore_case(field, b"total conversions") {
+                2
+            } else {
+                1
+            };
+            if priority > conv_priority {
+                mapping.conversions_col = idx;
+                conv_priority = priority;
+            }
+        }
+
+        if contains_ignore_case(field, b"campaign") && !contains_ignore_case(field, b"id") {
             mapping.campaign_col = idx;
             mapping.has_campaign = true;
-        } else if contains_ignore_case(field, b"ad group")
+        } else if (contains_ignore_case(field, b"ad group")
             || contains_ignore_case(field, b"adgroup")
-            || contains_ignore_case(field, b"asset group")
+            || contains_ignore_case(field, b"asset group"))
+            && !contains_ignore_case(field, b"id")
         {
             mapping.adgroup_col = idx;
             mapping.has_adgroup = true;

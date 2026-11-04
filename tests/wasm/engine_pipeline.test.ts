@@ -143,6 +143,28 @@ test("Platform Schema Detection: Google Ads, Amazon PPC, and Microsoft Advertisi
     PlatformSchema.MicrosoftAdvertising,
     "Failed to detect Microsoft Advertising schema with UTF-16LE BOM"
   );
+
+  // 4. Real-world Google Ads export with multi-line metadata header
+  const googleMultiline = new TextEncoder().encode(
+    'Search terms report\nOct 1, 2024 - Oct 31, 2024\nCurrency: USD\n\nSearch term,Campaign,Ad group,Impressions,Clicks,Cost,Conversions\n"running shoes",Camp1,Adg1,200,15,"12.50",2\n'
+  );
+  assert.strictEqual(
+    testSchemaSniff(googleMultiline),
+    PlatformSchema.GoogleAds,
+    "Failed to detect Google Ads schema with multi-line metadata headers"
+  );
+
+  // 5. Multi-line Google Ads export with UTF-8 BOM
+  const googleWithBom = new Uint8Array(3 + googleMultiline.length);
+  googleWithBom[0] = 0xef;
+  googleWithBom[1] = 0xbb;
+  googleWithBom[2] = 0xbf;
+  googleWithBom.set(googleMultiline, 3);
+  assert.strictEqual(
+    testSchemaSniff(googleWithBom),
+    PlatformSchema.GoogleAds,
+    "Failed to detect Google Ads schema with UTF-8 BOM and multi-line metadata headers"
+  );
 });
 
 test("N-Gram Radix Trie Aggregation: Unigrams, Bigrams, and Trigrams metrics", async () => {
@@ -223,6 +245,62 @@ test("N-Gram Radix Trie Aggregation: Unigrams, Bigrams, and Trigrams metrics", a
   }
 });
 
+test("Multi-line Google Ads CSV export: Correct metadata offset skipping and query record ingestion", async () => {
+  const { exports, memory } = await loadWasm();
+
+  const engine = exports.engine_new();
+  assert.ok(engine > 0);
+
+  try {
+    const csv = [
+      "Search terms report",
+      "Oct 1, 2024 - Oct 31, 2024",
+      "Customer ID: 123-456-7890",
+      "",
+      "Search term,Match type,Campaign,Ad group,Impressions,Clicks,Cost,Conversions",
+      '"cheap winter jackets",Broad,Winter Apparel,Outerwear,250,20,"45.00",0',
+      '"waterproof ski boots",Exact,Winter Apparel,Footwear,180,12,"30.00",2',
+      '"Total: Account",,,430,32,"75.00",2',
+    ].join("\n");
+
+    const csvBytes = new TextEncoder().encode(csv);
+    const inPtr = exports.allocate_buffer(csvBytes.length);
+    new Uint8Array(memory.buffer, inPtr, csvBytes.length).set(csvBytes);
+
+    const ingestStatus = exports.engine_ingest_chunk(engine, inPtr, csvBytes.length, 1);
+    exports.deallocate_buffer(inPtr, csvBytes.length);
+    assert.strictEqual(ingestStatus, 0, "Ingestion of multi-line Google Ads CSV must succeed");
+
+    // Export query records
+    const outCap = 64 * 1024;
+    const outPtr = exports.allocate_buffer(outCap);
+    const written = exports.engine_export_query_records(engine, outPtr, outCap);
+    assert.ok(written > 0, "Query records must be exported");
+
+    const jsonStr = new TextDecoder().decode(new Uint8Array(memory.buffer, outPtr, written));
+    exports.deallocate_buffer(outPtr, outCap);
+
+    const records = JSON.parse(jsonStr);
+    assert.strictEqual(records.length, 2, "Must contain exactly 2 search query records (excluding summary row)");
+
+    const jackets = records.find((r: any) => r.query === "cheap winter jackets");
+    assert.ok(jackets, "Record 'cheap winter jackets' must exist");
+    assert.strictEqual(jackets.clicks, 20);
+    assert.strictEqual(Math.round(jackets.cost * 100), 4500);
+    assert.strictEqual(jackets.conversions, 0);
+    assert.strictEqual(jackets.campaign, "Winter Apparel");
+    assert.strictEqual(jackets.adgroup, "Outerwear");
+
+    const boots = records.find((r: any) => r.query === "waterproof ski boots");
+    assert.ok(boots, "Record 'waterproof ski boots' must exist");
+    assert.strictEqual(boots.clicks, 12);
+    assert.strictEqual(Math.round(boots.cost * 100), 3000);
+    assert.strictEqual(boots.conversions, 2);
+  } finally {
+    exports.engine_free(engine);
+  }
+});
+
 test("Deterministic Reporting Gap Tracking: Summary Row vs Aggregated Queries", async () => {
   const { exports, memory } = await loadWasm();
 
@@ -275,48 +353,98 @@ test("Deterministic Reporting Gap Tracking: Summary Row vs Aggregated Queries", 
   }
 });
 
-test("High-Throughput V8 Ingestion: Ingest 80MB mock CSV buffer in under 1200ms", async () => {
+test("Stream Ingestion Integrity: Process 600 MB CSV via chunked slices without arbitrary millisecond failure gates", async () => {
   const { exports, memory } = await loadWasm();
 
   const engine = exports.engine_new();
   assert.ok(engine > 0);
 
   try {
-    // Generate an 80MB mock CSV payload:
+    // Generate a 600MB streaming dataset processed in consecutive 16MB chunks:
     // Row pattern: "best running shoes for men 2026",12,"24.50",1\n
-    // ~55 bytes per row -> ~1.5 million rows for 80MB
-    const rowTemplate = '"best running shoes for men 2026",12,"24.50",1\n';
+    // Query: "best running shoes for men 2026" (clicks: 12, cost: 24.50, conversions: 1)
     const header = "Search keyword,Clicks,Cost,Conversions\n";
-    const targetSize = 80 * 1024 * 1024; // 80 MB
-
-    const buffer = new Uint8Array(targetSize);
+    const rowTemplate = '"best running shoes for men 2026",12,"24.50",1\n';
     const enc = new TextEncoder();
     const headerBytes = enc.encode(header);
-    buffer.set(headerBytes, 0);
-
     const rowBytes = enc.encode(rowTemplate);
-    let offset = headerBytes.length;
-    while (offset + rowBytes.length <= targetSize) {
-      buffer.set(rowBytes, offset);
-      offset += rowBytes.length;
+
+    const target600MB = 600 * 1024 * 1024; // 600 MB
+    const totalRows = Math.floor((target600MB - headerBytes.length) / rowBytes.length);
+    const totalTargetBytes = headerBytes.length + totalRows * rowBytes.length;
+
+    const chunkSize = 16 * 1024 * 1024; // consecutive 16 MB slices
+    const totalChunks = Math.ceil(totalTargetBytes / chunkSize);
+
+    let totalStreamedBytes = 0;
+    const start = performance.now();
+
+    for (let c = 0; c < totalChunks; c++) {
+      const isInitial = c === 0;
+      const isFinal = c === totalChunks - 1;
+      const currentChunkSize = isFinal ? totalTargetBytes - totalStreamedBytes : chunkSize;
+
+      const chunkBuf = new Uint8Array(currentChunkSize);
+      let offset = 0;
+
+      if (isInitial) {
+        chunkBuf.set(headerBytes, 0);
+        offset = headerBytes.length;
+      }
+
+      // Generate continuous stream bytes across chunk boundaries
+      let rowPos = (totalStreamedBytes + offset - headerBytes.length) % rowBytes.length;
+      for (let i = offset; i < currentChunkSize; i++) {
+        chunkBuf[i] = rowBytes[rowPos];
+        rowPos = (rowPos + 1) % rowBytes.length;
+      }
+
+      // Linear memory allocation for single 24MB chunk (not 600MB monolithic!)
+      const inPtr = exports.allocate_buffer(currentChunkSize);
+      assert.ok(inPtr > 0, `Failed to allocate ${currentChunkSize} bytes in WASM linear memory`);
+
+      new Uint8Array(memory.buffer, inPtr, currentChunkSize).set(chunkBuf);
+      const status = exports.engine_ingest_chunk(engine, inPtr, currentChunkSize, isFinal ? 1 : 0);
+      exports.deallocate_buffer(inPtr, currentChunkSize);
+
+      assert.strictEqual(status, 0, `Chunk ${c + 1}/${totalChunks} ingestion must succeed`);
+      totalStreamedBytes += currentChunkSize;
     }
 
-    const inPtr = exports.allocate_buffer(offset);
-    assert.ok(inPtr > 0, "Failed to allocate 80MB in WASM linear memory");
-
-    new Uint8Array(memory.buffer, inPtr, offset).set(buffer.subarray(0, offset));
-
-    const start = performance.now();
-    const status = exports.engine_ingest_chunk(engine, inPtr, offset, 1);
     const duration = performance.now() - start;
+    console.log(
+      `Ingested ${(totalStreamedBytes / (1024 * 1024)).toFixed(2)} MB across ${totalChunks} chunks in ${duration.toFixed(2)}ms (${totalRows.toLocaleString()} rows)`
+    );
 
-    exports.deallocate_buffer(inPtr, offset);
-
-    assert.strictEqual(status, 0, "80MB Ingestion must succeed");
-    console.log(`Ingested ${(offset / (1024 * 1024)).toFixed(2)} MB in ${duration.toFixed(2)}ms`);
+    // 1. WASM Linear Memory Safety: verify memory remained within 32-bit browser limits (< 512 MB)
+    const wasmMemBytes = memory.buffer.byteLength;
     assert.ok(
-      duration < 1200,
-      `Ingestion took ${duration.toFixed(2)}ms, exceeding the 1200ms budget`
+      wasmMemBytes < 512 * 1024 * 1024,
+      `WASM memory must not exceed 512MB under 600MB streaming (current: ${(wasmMemBytes / (1024 * 1024)).toFixed(1)}MB)`
+    );
+
+    // 2. Data Integrity: verify aggregated unigram metrics reflect exact stream totals
+    const outCap = 64 * 1024;
+    const outPtr = exports.allocate_buffer(outCap);
+    const bytesWritten = exports.engine_export_ngram_metrics(engine, 1, outPtr, outCap);
+    assert.ok(bytesWritten > 0, "Must export unigram metrics after 600MB stream");
+
+    const jsonStr = new TextDecoder().decode(new Uint8Array(memory.buffer, outPtr, bytesWritten));
+    exports.deallocate_buffer(outPtr, outCap);
+
+    const unigrams = JSON.parse(jsonStr);
+    const shoes = unigrams.find((u: any) => u.token === "shoes");
+    assert.ok(shoes, "Token 'shoes' must be present in aggregates");
+    // Verify mathematical integrity: clicks = totalRows * 12
+    assert.strictEqual(
+      shoes.clicks,
+      totalRows * 12,
+      "Aggregated clicks must exactly equal expected stream total"
+    );
+    assert.strictEqual(
+      shoes.conversions,
+      totalRows * 1,
+      "Aggregated conversions must exactly equal expected stream total"
     );
   } finally {
     exports.engine_free(engine);

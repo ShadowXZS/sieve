@@ -25,18 +25,30 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { isIngesting, ingestionProgress, setIngesting, addIngestedFiles } = useSieveStore();
+  const { isIngesting, ingestionProgress, setIngesting, addIngestedFiles, errorMessage: storeError, setErrorMessage: setStoreErrorMessage } = useSieveStore();
 
   const processFiles = useCallback(
     async (files: File[]) => {
       setErrorMessage(null);
+      setStoreErrorMessage(null);
 
       // Validate files
-      const nonCsv = files.find(
-        (f) => !f.name.toLowerCase().endsWith('.csv') && f.type !== 'text/csv'
-      );
+      const nonCsv = files.find((f) => {
+        const name = f.name.toLowerCase();
+        return (
+          !name.endsWith('.csv') &&
+          !name.endsWith('.tsv') &&
+          !name.endsWith('.txt') &&
+          f.type !== 'text/csv' &&
+          f.type !== 'text/tab-separated-values' &&
+          f.type !== 'application/vnd.ms-excel' &&
+          f.type !== ''
+        );
+      });
       if (nonCsv) {
-        setErrorMessage('Only CSV files are supported');
+        const msg = 'Only CSV files are supported';
+        setErrorMessage(msg);
+        setStoreErrorMessage(msg);
         return;
       }
 
@@ -47,26 +59,67 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
 
       try {
         const totalFiles = files.length;
+        const allKeywords: import('../../workers/protocol.ts').PersistedNegativeKeyword[] = [];
+        const CHUNK_SIZE = 16 * 1024 * 1024; // 16 MB chunked streaming slice
+
         for (let i = 0; i < totalFiles; i++) {
           const file = files[i];
-          const arrayBuffer = await file.arrayBuffer();
 
-          if (workerPool) {
-            const taskId = `task_${Date.now()}_${i}`;
-            await workerPool.executeIngestion(taskId, arrayBuffer, true);
+          // Validate non-empty file size
+          if (file.size === 0) {
+            throw new Error('PARSE_ERROR: Cannot ingest empty CSV file (0 bytes)');
           }
 
-          setIngesting(true, Math.round(((i + 1) / totalFiles) * 100));
+          const targetWorkerId = workerPool?.getAvailableWorkerId?.() ?? undefined;
+          const fileSize = file.size;
+          const totalChunks = Math.max(1, Math.ceil(fileSize / CHUNK_SIZE));
+          const targetCPA = useSieveStore.getState().thresholds.targetCPA;
+
+          for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+            const startByte = chunkIdx * CHUNK_SIZE;
+            const endByte = Math.min(startByte + CHUNK_SIZE, fileSize);
+            const isFinal = chunkIdx === totalChunks - 1;
+
+            const sliceBlob = file.slice(startByte, endByte);
+            const chunkBuffer = await sliceBlob.arrayBuffer();
+
+            if (workerPool) {
+              const taskId = `task_${Date.now()}_${i}_${chunkIdx}`;
+              const res = await workerPool.executeIngestion(
+                taskId,
+                chunkBuffer,
+                isFinal,
+                targetWorkerId,
+                targetCPA
+              );
+              if (res.keywords && res.keywords.length > 0) {
+                allKeywords.push(...res.keywords);
+              }
+            }
+
+            const fileProgress = (chunkIdx + 1) / totalChunks;
+            const overallProgress = Math.min(
+              99,
+              Math.round(((i + fileProgress) / totalFiles) * 100)
+            );
+            setIngesting(true, overallProgress);
+          }
+        }
+
+        if (allKeywords.length > 0) {
+          useSieveStore.getState().setKeywords(allKeywords);
         }
 
         onIngestComplete?.(files);
       } catch (err: any) {
-        setErrorMessage(err?.message || 'Failed to process files via worker pool');
+        const msg = err?.message || 'Failed to process files via worker pool';
+        setErrorMessage(msg);
+        setStoreErrorMessage(msg);
       } finally {
         setIngesting(false, 100);
       }
     },
-    [workerPool, onIngestComplete, setIngesting, addIngestedFiles]
+    [workerPool, onIngestComplete, setIngesting, addIngestedFiles, setStoreErrorMessage]
   );
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -157,7 +210,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             Drag &amp; drop search term CSV reports here
           </h3>
           <p className="text-xs text-zinc-400 max-w-sm mb-4">
-            Supports Google Ads, Amazon PPC, and Microsoft Advertising export formats. Up to 500MB
+            Supports Google Ads, Amazon PPC, and Microsoft Advertising export formats. Up to 600MB
             processed in background workers.
           </p>
 
@@ -183,10 +236,10 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
         )}
       </div>
 
-      {errorMessage && (
+      {(errorMessage || storeError) && (
         <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs transition-opacity duration-150">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-          <span>{errorMessage}</span>
+          <span>{errorMessage || storeError}</span>
         </div>
       )}
     </div>

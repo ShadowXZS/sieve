@@ -15,6 +15,7 @@ import type {
   AuctionCollisionRecord,
   PMaxCannibalizationRecord,
   NegativeCollisionResult,
+  PersistedNegativeKeyword,
 } from './protocol.ts';
 
 export class SieveWorkerCore {
@@ -41,9 +42,12 @@ export class SieveWorkerCore {
     if (!wasmSource) {
       // In Node.js environment, load from disk
       if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const { fileURLToPath } = await import('node:url');
+        const fsMod = 'node:fs/promises';
+        const pathMod = 'node:path';
+        const urlMod = 'node:url';
+        const fs = await import(/* @vite-ignore */ fsMod);
+        const path = await import(/* @vite-ignore */ pathMod);
+        const { fileURLToPath } = await import(/* @vite-ignore */ urlMod);
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
         const wasmPath = path.resolve(__dirname, '../../crates/sieve_core/pkg/sieve_core_bg.wasm');
         try {
@@ -56,10 +60,21 @@ export class SieveWorkerCore {
           wasmBuffer = await fs.readFile(targetPath);
         }
       } else {
-        // In browser environment, fetch relative wasm binary
-        const res = await fetch(
-          new URL('../../crates/sieve_core/pkg/sieve_core_bg.wasm', import.meta.url)
-        );
+        // In browser environment, fetch relative wasm binary with root fallback
+        let res: Response;
+        try {
+          res = await fetch(
+            new URL('../../crates/sieve_core/pkg/sieve_core_bg.wasm', import.meta.url)
+          );
+          if (!res.ok) {
+            res = await fetch('/sieve_core_bg.wasm');
+          }
+        } catch {
+          res = await fetch('/sieve_core_bg.wasm');
+        }
+        if (!res.ok) {
+          throw new Error(`Failed to load WebAssembly binary: ${res.statusText}`);
+        }
         wasmBuffer = await res.arrayBuffer();
       }
     } else if (wasmSource instanceof WebAssembly.Module) {
@@ -159,13 +174,17 @@ export class SieveWorkerCore {
           let nonPrintableCount = 0;
           const checkLen = Math.min(chunk.length, 64);
 
-          // Check for UTF-16LE BOM [0xFF, 0xFE]
+          // Check for UTF-16LE BOM [0xFF, 0xFE], UTF-16BE BOM [0xFE, 0xFF], UTF-8 BOM [0xEF, 0xBB, 0xBF]
           const isUtf16BOM = chunk.length >= 2 && chunk[0] === 0xff && chunk[1] === 0xfe;
+          const isUtf16BEBOM = chunk.length >= 2 && chunk[0] === 0xfe && chunk[1] === 0xff;
+          const isUtf8BOM = chunk.length >= 3 && chunk[0] === 0xef && chunk[1] === 0xbb && chunk[2] === 0xbf;
 
-          if (!isUtf16BOM) {
-            for (let i = 0; i < checkLen; i++) {
+          const startIdx = isUtf8BOM ? 3 : (isUtf16BOM || isUtf16BEBOM) ? 2 : 0;
+
+          if (!isUtf16BOM && !isUtf16BEBOM) {
+            for (let i = startIdx; i < checkLen; i++) {
               const b = chunk[i];
-              if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e)) {
+              if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e) || b >= 0x80) {
                 hasPrintable = true;
               } else if (b < 0x20 || b === 0x7f) {
                 nonPrintableCount++;
@@ -200,12 +219,108 @@ export class SieveWorkerCore {
               );
             }
 
+            let extractedKeywords: PersistedNegativeKeyword[] | undefined = undefined;
+
+            if (command.isFinal && typeof this.exports.engine_export_query_records === 'function') {
+              const outCap = 16 * 1024 * 1024; // 16MB buffer for query records JSON
+              const outPtr = this.exports.allocate_buffer(outCap);
+              try {
+                const written = this.exports.engine_export_query_records(
+                  this.enginePtr,
+                  outPtr,
+                  outCap
+                );
+                if (written > 0) {
+                  const jsonStr = new TextDecoder().decode(
+                    new Uint8Array(this.memory!.buffer, outPtr, written)
+                  );
+                  const records: Array<{
+                    query: string;
+                    campaign: string;
+                    adgroup: string;
+                    clicks: number;
+                    cost: number;
+                    conversions: number;
+                    has_collision: boolean;
+                  }> = JSON.parse(jsonStr);
+
+                  const now = Date.now();
+                  const targetCPA = command.targetCPA ?? 50;
+                  extractedKeywords = records
+                    .filter((r) => r.query && r.query.trim().length > 0)
+                    .map((r, idx) => {
+                      const matchType: 'exact' | 'phrase' | 'broad' = r.has_collision
+                        ? 'exact'
+                        : r.clicks >= 10
+                        ? 'phrase'
+                        : 'broad';
+
+                      const formatted =
+                        matchType === 'exact'
+                          ? `[${r.query}]`
+                          : matchType === 'phrase'
+                          ? `"${r.query}"`
+                          : r.query;
+
+                      // Strict Marginal Waste Definition:
+                      // - Non-converting terms (Conversions == 0): Marginal Waste = Total Spend.
+                      // - Converting terms (Conversions > 0): Marginal Waste = Math.max(0, Total Spend - (Conversions * Target CPA)).
+                      const cost = r.cost || 0;
+                      const conv = r.conversions || 0;
+                      const waste =
+                        conv <= 0
+                          ? Math.round(cost * 100) / 100
+                          : Math.max(0, Math.round((cost - conv * targetCPA) * 100) / 100);
+
+                      const confidence =
+                        r.clicks > 0
+                          ? Math.min(
+                              0.99,
+                              Math.max(
+                                0.65,
+                                Math.round((1 - r.conversions / (r.clicks + 1)) * 100) / 100
+                              )
+                            )
+                          : 0.8;
+
+                      return {
+                        sha256Hash: `hash_${r.query}_${now}_${idx}`,
+                        keyword: r.query,
+                        matchType,
+                        formattedRule: formatted,
+                        platform: 1 as PlatformSchema,
+                        confidenceScore: confidence,
+                        marginalWaste: waste,
+                        hasCollision: r.has_collision,
+                        collidingSafeTerms: r.has_collision
+                          ? [`converting ${r.query}`]
+                          : undefined,
+                        clicks: r.clicks,
+                        cost: r.cost,
+                        conversions: r.conversions,
+                        firstSeenCampaign: r.campaign || undefined,
+                        createdAt: now - idx * 10,
+                        scope: {
+                          campaign: r.campaign || undefined,
+                          adGroup: r.adgroup || undefined,
+                        },
+                      };
+                    });
+                }
+              } catch (e) {
+                console.error('Failed to export query records:', e);
+              } finally {
+                this.exports.deallocate_buffer(outPtr, outCap);
+              }
+            }
+
             return {
               type: 'INGEST_CHUNK_COMPLETE',
               requestId: command.requestId,
               statusCode,
               bytesConsumed: chunk.length,
               workerId: this.workerId,
+              keywords: extractedKeywords,
             };
           } finally {
             this.exports.deallocate_buffer(inPtr, chunk.length);

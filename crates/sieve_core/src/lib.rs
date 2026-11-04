@@ -23,7 +23,7 @@ use csv_core::{Reader, ReaderBuilder, ReadRecordResult};
 use std::alloc::{alloc as sys_alloc, dealloc as sys_dealloc};
 use wasm_bindgen::prelude::*;
 
-pub use engine::{MetricAggregate, NGramAggregator, RadixTrie, SieveEngine};
+pub use engine::{MetricAggregate, NGramAggregator, RadixTrie, SieveEngine, StreamingChunkFeeder};
 pub use guard::{CollisionGuard, SafeListIndex};
 pub use linguistics::{cluster_tokens, damerau_levenshtein, export_clusters_json, phonetic_code};
 pub use matrix::evaluate_combinatorial_variations;
@@ -228,6 +228,24 @@ pub extern "C" fn engine_detect_pmax_cannibalization(
     }
     let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
     engine.detect_pmax_cannibalization(out)
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn engine_export_query_records(
+    ptr: *mut SieveEngine,
+    out_ptr: *mut u8,
+    out_cap: usize,
+) -> usize {
+    let engine = match unsafe { ptr.as_mut() } {
+        Some(e) => e,
+        None => return 0,
+    };
+    if out_ptr.is_null() || out_cap == 0 {
+        return 0;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr, out_cap) };
+    engine.export_query_records(out)
 }
 
 // -----------------------------------------------------------------------------
@@ -804,6 +822,23 @@ mod tests {
 
         let amazon = b"Customer Search Term,Impressions,Clicks,Spend\n";
         assert_eq!(detect_schema(amazon.as_ptr(), amazon.len()), 2);
+
+        // Real-world multi-line Google Ads export header
+        let google_multiline = b"Search terms report\nOct 1, 2024 - Oct 31, 2024\n\nSearch term,Campaign,Ad group,Clicks,Cost,Conversions\n\"running shoes\",Camp 1,Adg 1,15,30.00,0\n";
+        assert_eq!(detect_schema(google_multiline.as_ptr(), google_multiline.len()), 1);
+
+        let engine = engine_new();
+        assert!(!engine.is_null());
+        let status = engine_ingest_chunk(engine, google_multiline.as_ptr(), google_multiline.len(), 1);
+        assert_eq!(status, 0);
+
+        let mut out_buf = [0u8; 1024];
+        let written = engine_export_query_records(engine, out_buf.as_mut_ptr(), out_buf.len());
+        assert!(written > 0);
+        let json_str = core::str::from_utf8(&out_buf[..written]).unwrap();
+        assert!(json_str.contains("running shoes"));
+        assert!(json_str.contains("Camp 1"));
+        engine_free(engine);
     }
 
     #[test]

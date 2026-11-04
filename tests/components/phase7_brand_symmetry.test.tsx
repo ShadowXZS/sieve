@@ -59,6 +59,14 @@ test('Phase 7 Brand Integration: Application header renders /sieve.svg brand ass
   assert.strictEqual(headerLogo.tagName, 'IMG');
   assert.strictEqual(headerLogo.getAttribute('src'), '/sieve.svg');
   assert.ok(headerLogo.getAttribute('alt')?.includes('Sieve'), 'Logo must have accessible alt text');
+
+  // Verify enlarged dominant title, removal of Phase 7 badge, center cluster, and 10k demo button
+  const header = container.querySelector('[data-testid="brand-header"]');
+  assert.ok(header, 'Must render brand header');
+  assert.ok(header.textContent?.includes('SIEVE'), 'Header must contain SIEVE title');
+  assert.strictEqual(header.textContent?.includes('Phase 7'), false, 'Header must NOT contain Phase 7 badge');
+  assert.strictEqual(header.textContent?.includes('WASM Analytical Pipeline'), false, 'Header must NOT contain center cluster');
+  assert.strictEqual(header.textContent?.includes('Load 10k Demo'), false, 'Header must NOT contain Load 10k Demo button');
 });
 
 test('Phase 7 Brand Integration: FileDropzone includes ambient /sieve.svg watermark', () => {
