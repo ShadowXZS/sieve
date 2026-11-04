@@ -32,7 +32,9 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
+  ShieldCheck,
 } from 'lucide-react';
+import { scrubKeywordList } from '../../crypto/pii_scrubber.ts';
 
 export type ExportFormat = 'google_editor' | 'amazon_csv' | 'google_script' | 'plain_text';
 
@@ -49,6 +51,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 }) => {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('google_editor');
   const [activePresets, setActivePresets] = useState<string[]>([]);
+  const [isPiiScrubbed, setIsPiiScrubbed] = useState<boolean>(true);
   const [isCopied, setIsCopied] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string>('');
 
@@ -75,20 +78,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     return filterKeywordsByPresets(keywords, activePresets);
   }, [keywords, activePresets]);
 
+  // Client-Side PII Scrubber prior to export
+  const { scrubbedKeywords, piiStats } = useMemo(() => {
+    if (!isPiiScrubbed) {
+      return { scrubbedKeywords: eligibleKeywords, piiStats: null };
+    }
+    const { scrubbed, stats } = scrubKeywordList(eligibleKeywords);
+    return { scrubbedKeywords: scrubbed, piiStats: stats };
+  }, [eligibleKeywords, isPiiScrubbed]);
+
   // Generate payload according to selected platform format
   const exportPayload = useMemo(() => {
     switch (selectedFormat) {
       case 'google_editor':
-        return formatGoogleAdsEditorTSV(eligibleKeywords);
+        return formatGoogleAdsEditorTSV(scrubbedKeywords);
       case 'amazon_csv':
-        return formatAmazonBulkUploadCSV(eligibleKeywords);
+        return formatAmazonBulkUploadCSV(scrubbedKeywords);
       case 'google_script':
-        return generateGoogleAdsScript(eligibleKeywords);
+        return generateGoogleAdsScript(scrubbedKeywords);
       case 'plain_text':
       default:
-        return eligibleKeywords.map((k) => k.formattedRule).join('\n');
+        return scrubbedKeywords.map((k) => k.formattedRule).join('\n');
     }
-  }, [selectedFormat, eligibleKeywords]);
+  }, [selectedFormat, scrubbedKeywords]);
 
   const togglePreset = (id: string) => {
     setActivePresets((prev) =>
@@ -254,9 +266,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </button>
         </div>
 
-        {/* Intent Presets Filter Toolbar */}
-        <div className="px-6 py-2.5 bg-zinc-950/40 border-b border-zinc-800 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
+        {/* Intent Presets & Privacy Toolbar */}
+        <div className="px-6 py-2.5 bg-zinc-950/40 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
             <Filter className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-zinc-400 font-medium">Intent Presets:</span>
             {Object.values(INTENT_PRESETS).map((preset) => {
@@ -276,16 +288,37 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </button>
               );
             })}
+            {activePresets.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActivePresets([])}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono transition-colors duration-150 ml-1"
+              >
+                Clear
+              </button>
+            )}
           </div>
-          {activePresets.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setActivePresets([])}
-              className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono transition-colors duration-150"
-            >
-              Clear Presets
-            </button>
-          )}
+
+          {/* Client-Side PII Scrubber Toggle */}
+          <button
+            type="button"
+            data-testid="export-pii-toggle"
+            onClick={() => setIsPiiScrubbed((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono transition-all duration-150 border outline-none active:scale-95 ${
+              isPiiScrubbed
+                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/80'
+                : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800 hover:text-zinc-300'
+            }`}
+            title="Toggle client-side redaction of emails, phone numbers, cards, SSNs, and IPs prior to export"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>PII Scrubber: {isPiiScrubbed ? 'Redacted' : 'Raw'}</span>
+            {piiStats && piiStats.redactedTokens > 0 && isPiiScrubbed && (
+              <span className="px-1 py-0.2 rounded text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-700/60 font-semibold">
+                {piiStats.redactedTokens}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Payload Preview Body */}

@@ -22,7 +22,11 @@ import { BrandHeader } from './components/brand/BrandHeader.tsx';
 import { AppShell } from './components/layout/AppShell.tsx';
 import { ProcessingOverlay } from './components/feedback/ProcessingOverlay.tsx';
 import { PrivacyBadgeModal } from './components/privacy/PrivacyBadgeModal.tsx';
-import { generateSessionAuditHash } from './crypto/privacy_monitor.ts';
+import {
+  generateSessionAuditHash,
+  generateZeroLeakAttestation,
+  type ZeroLeakAttestation,
+} from './crypto/privacy_monitor.ts';
 import { exportVaultToBuffer } from './crypto/vault.ts';
 import {
   pickLocalDirectory,
@@ -38,21 +42,24 @@ export const App: React.FC = () => {
   const [sessionAuditHash, setSessionAuditHash] = useState(
     '0000000000000000000000000000000000000000000000000000000000000000'
   );
+  const [attestation, setAttestation] = useState<ZeroLeakAttestation | null>(null);
 
   const { keywords, filteredKeywords, kpi, isIngesting, ingestionProgress } =
     useSieveStore();
 
   useEffect(() => {
-    // Generate deterministic session audit hash reflecting current execution state
-    generateSessionAuditHash({
+    // Generate deterministic session audit hash & zero-leak attestation
+    generateZeroLeakAttestation({
       sessionId: 'session_active',
-      timestamp: 1700000000000,
       datasetRecordCount: keywords.length,
       totalWasteRecovered: kpi.totalWaste,
       exclusionsCount: filteredKeywords.length,
       platform: 'sieve_unified',
       clientAppVersion: '0.1.0',
-    }).then(setSessionAuditHash);
+    }).then((att) => {
+      setAttestation(att);
+      setSessionAuditHash(att.sessionHash);
+    });
   }, [keywords.length, kpi.totalWaste, filteredKeywords.length]);
 
   const handleSyncFileSystem = async () => {
@@ -154,6 +161,7 @@ export const App: React.FC = () => {
         sessionAuditHash={sessionAuditHash}
         telemetryBlockedCount={0}
         isEncrypted={true}
+        attestation={attestation}
         onSyncFileSystem={handleSyncFileSystem}
       />
     </AppShell>

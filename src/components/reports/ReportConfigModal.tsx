@@ -16,6 +16,7 @@ import {
   Sparkles,
   TrendingUp,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { calculateReallocationModel, formatCurrency } from '../../reports/reallocation.ts';
@@ -50,6 +51,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
   const [organizationTitle, setOrganizationTitle] = useState('Acme Corp PPC Audit');
   const [accentColor, setAccentColor] = useState('#10b981');
   const [marginalCPA, setMarginalCPA] = useState<number>(thresholds.targetCPA || 50);
+  const [redactPii, setRedactPii] = useState<boolean>(true);
   const [notes, setNotes] = useState(
     'Audit recommendations: Apply exact negative match exclusions to prevent margin erosion without cannibalizing high-intent converting terms.'
   );
@@ -123,6 +125,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           reportDate,
           analytics,
           thresholds,
+          redactPii,
         });
         filename = `${organizationTitle.toLowerCase().replace(/\s+/g, '-')}-executive-audit.pdf`;
       } else {
@@ -139,6 +142,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           thresholds,
           longTailResult,
           dilutionResult,
+          redactPii,
         });
         filename = `${organizationTitle.toLowerCase().replace(/\s+/g, '-')}-forensic-deck.pdf`;
       }
@@ -351,6 +355,31 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
               placeholder="Add client-facing strategic recommendations..."
               className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 resize-none font-sans"
             />
+          </div>
+
+          {/* Privacy & Zero-Leak Redaction Control */}
+          <div className="p-3 bg-zinc-950 border border-emerald-900/40 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div>
+                <span className="text-xs font-semibold text-zinc-200 block">
+                  Client-Side PII Scrubbing
+                </span>
+                <span className="text-[11px] text-zinc-400 block">
+                  Redact emails, phone numbers, and IDs from search terms prior to PDF synthesis.
+                </span>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="report-pii-scrub-toggle"
+                checked={redactPii}
+                onChange={(e) => setRedactPii(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
+            </label>
           </div>
 
           {errorMessage && (

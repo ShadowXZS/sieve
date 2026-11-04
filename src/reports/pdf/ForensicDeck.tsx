@@ -44,6 +44,7 @@ import {
 } from '../../utils/executiveAnalytics.ts';
 import { registerPdfFonts } from './fonts/index.ts';
 import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from './styles.ts';
+import { scrubKeywordList, scrubPiiText } from '../../crypto/pii_scrubber.ts';
 
 // Ensure offline UTF-8 TrueType fonts are registered
 registerPdfFonts();
@@ -61,6 +62,7 @@ export interface ForensicDeckProps {
   thresholds?: SieveThresholds;
   longTailResult?: FragmentedLongTailResult;
   dilutionResult?: MatchTypeDilutionResult;
+  redactPii?: boolean;
 }
 
 export const ForensicDeck: React.FC<ForensicDeckProps> = ({
@@ -76,14 +78,20 @@ export const ForensicDeck: React.FC<ForensicDeckProps> = ({
   thresholds,
   longTailResult,
   dilutionResult,
+  redactPii = true,
 }) => {
   const activeCurrency: SupportedCurrency = normalizeCurrencySymbol(currencySymbol);
+
+  // Apply Client-Side PII Scrubber prior to document synthesis
+  const effectiveKeywords = redactPii ? scrubKeywordList(keywords).scrubbed : keywords;
+  const effectiveNotes = notes && redactPii ? scrubPiiText(notes).scrubbedText : notes;
+  const effectiveOrgTitle = organizationTitle && redactPii ? scrubPiiText(organizationTitle).scrubbedText : organizationTitle;
 
   // Compute or reuse executive analytics (pure functional, zero React hook overhead)
   const execAnalytics =
     analytics ??
     computeExecutiveAnalytics(
-      keywords,
+      effectiveKeywords,
       thresholds || {
         targetCPA: reallocation.marginalCPA || 50,
         minClicks: 10,

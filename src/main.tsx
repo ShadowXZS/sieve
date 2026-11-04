@@ -4,8 +4,6 @@ import { App } from "./App.tsx";
 import "./index.css";
 import { SieveWasmBridge, FilterOp } from "./sieve.ts";
 
-console.log("Sieve core frontend initialized");
-
 const rootEl = typeof document !== "undefined" ? document.getElementById("app") : null;
 if (rootEl) {
   ReactDOM.createRoot(rootEl).render(
@@ -21,6 +19,11 @@ export * from "./workers/pool.ts";
 export * from "./storage/db.ts";
 export * from "./storage/repositories/history.repo.ts";
 export * from "./state/useSieveStore.ts";
+export * from "./crypto/pii_scrubber.ts";
+export * from "./crypto/privacy_monitor.ts";
+export * from "./crypto/attestation.ts";
+export * from "./sanitizer/pii_scrubber.ts";
+export * from "./components/privacy/PrivacyModal.tsx";
 export * from "./components/dropzone/FileDropzone.tsx";
 export * from "./components/kpi/SummaryDashboard.tsx";
 export * from "./components/dashboard/ExecutiveDashboard.tsx";
