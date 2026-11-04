@@ -7,17 +7,19 @@
 
 import React from 'react';
 import { SieveLogo } from './SieveLogo.tsx';
-import { Cpu, Database, Sparkles } from 'lucide-react';
+import { Cpu, Database, Sparkles, ShieldCheck } from 'lucide-react';
 
 export interface BrandHeaderProps {
   workerConcurrency?: number;
   onLoadDemo?: () => void;
+  onOpenPrivacyModal?: () => void;
   className?: string;
 }
 
 export const BrandHeader: React.FC<BrandHeaderProps> = ({
   workerConcurrency = 4,
   onLoadDemo,
+  onOpenPrivacyModal,
   className = '',
 }) => {
   return (
@@ -71,6 +73,18 @@ export const BrandHeader: React.FC<BrandHeaderProps> = ({
           <Database className="w-3.5 h-3.5 text-emerald-400" />
           <span>Dexie Tier</span>
         </div>
+
+        {onOpenPrivacyModal && (
+          <button
+            type="button"
+            onClick={onOpenPrivacyModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-800/50 transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 shadow-sm"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Zero-Telemetry Audit</span>
+            <span className="sm:hidden">Audit</span>
+          </button>
+        )}
 
         {onLoadDemo && (
           <button

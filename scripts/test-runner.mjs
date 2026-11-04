@@ -9,6 +9,7 @@ if (testFiles.length === 0) {
     ...globSync('tests/wasm/*.test.ts'),
     ...globSync('tests/unit/*.test.ts'),
     ...globSync('tests/components/*.test.tsx'),
+    ...globSync('tests/e2e/*.test.ts'),
   ];
 }
 

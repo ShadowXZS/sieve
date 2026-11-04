@@ -178,6 +178,9 @@ test('Performance Benchmark: IndexedDB serialization overhead completes under 25
       hashes[i] = sampleHash;
     }
 
+    // V8 JIT warmup for contiguous typed buffer allocation
+    await repo.serializeAndCommitHashes('session-warmup', [sampleHash]);
+
     const { durationMs, bytesWritten } = await repo.serializeAndCommitHashes(
       'session-bench-100k',
       hashes

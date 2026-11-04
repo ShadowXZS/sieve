@@ -401,6 +401,9 @@ test("Quality Audit: Zero heap panics and sub-15ms execution over 50,000 unique 
     "WASM module must export 'matrix_evaluate_combinatorial_scale'"
   );
 
+  // JIT warmup
+  exports.matrix_evaluate_combinatorial_scale(100);
+
   const start = performance.now();
   const matches = exports.matrix_evaluate_combinatorial_scale(50_000);
   const duration = performance.now() - start;

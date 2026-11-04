@@ -218,8 +218,9 @@ export class SieveWorkerPool {
     worker.busy = false;
 
     if (this.taskQueue.length > 0) {
+      const nextWorker = this.findNextAvailableWorker() || worker;
       const nextTask = this.taskQueue.shift()!;
-      this.runTaskOnWorker(worker, nextTask);
+      this.runTaskOnWorker(nextWorker, nextTask);
     }
   }
 
