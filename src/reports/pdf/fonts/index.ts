@@ -24,6 +24,9 @@ export function registerPdfFonts(): void {
   if (isRegistered) return;
 
   try {
+    // Prevent awkward word hyphens (e.g. "Con- vs") across all vector PDF text
+    Font.registerHyphenationCallback((word) => [word]);
+
     Font.register({
       family: 'DejaVuSans',
       fonts: [

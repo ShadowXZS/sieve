@@ -7,18 +7,20 @@
  */
 
 import React from 'react';
-import { Cpu, Zap, Database, Activity, CheckCircle2 } from 'lucide-react';
+import { Cpu, Zap, Database, Activity, CheckCircle2, RotateCcw } from 'lucide-react';
 import { SieveLogo } from '../brand/SieveLogo.tsx';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
 
 export interface WorkerProcessingHUDProps {
   workerPool?: SieveWorkerPool;
+  onClearDataset?: () => void;
   className?: string;
 }
 
 export const WorkerProcessingHUD: React.FC<WorkerProcessingHUDProps> = ({
   workerPool,
+  onClearDataset,
   className = '',
 }) => {
   const { isIngesting, ingestionProgress, kpi, ingestedFiles } = useSieveStore();
@@ -113,9 +115,23 @@ export const WorkerProcessingHUD: React.FC<WorkerProcessingHUDProps> = ({
               )}
             </div>
 
-            <span className="font-mono tabular-nums text-xs font-semibold text-emerald-400">
-              {isIngesting ? `${ingestionProgress}%` : '< 10ms live'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono tabular-nums text-xs font-semibold text-emerald-400">
+                {isIngesting ? `${ingestionProgress}%` : '< 10ms live'}
+              </span>
+              {onClearDataset && (
+                <button
+                  type="button"
+                  data-testid="clear-dataset-btn"
+                  onClick={onClearDataset}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-zinc-800 hover:bg-rose-950/60 text-zinc-300 hover:text-rose-300 border border-zinc-700 hover:border-rose-800/60 transition-all duration-150 ease-out active:scale-95 shadow-sm"
+                  title="Clear current dataset and release memory"
+                >
+                  <RotateCcw className="w-3 h-3 text-rose-400" />
+                  <span>Clear Dataset</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Progress / Status Bar (Zero Layout Shift) */}

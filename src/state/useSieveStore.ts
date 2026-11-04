@@ -72,8 +72,10 @@ export interface SieveState {
   sqlQueryResult: SqlQueryResult | null;
   isQueryRunning: boolean;
   sqlQueryError: string | null;
+  fileLoaded: boolean;
 
   // Actions
+  setFileLoaded: (loaded: boolean) => void;
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
   updateThresholds: (partial: Partial<SieveThresholds>) => void;
   setCurrency: (currency: SupportedCurrency, isManual?: boolean) => void;
@@ -217,6 +219,11 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   sqlQueryResult: null,
   isQueryRunning: false,
   sqlQueryError: null,
+  fileLoaded: false,
+
+  setFileLoaded: (loaded: boolean) => {
+    set({ fileLoaded: loaded });
+  },
 
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
     const { thresholds, currency } = get();
@@ -225,6 +232,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       keywords,
       filteredKeywords: filtered,
       kpi,
+      fileLoaded: keywords.length > 0,
     });
   },
 
@@ -352,6 +360,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       sqlQueryResult: null,
       isQueryRunning: false,
       sqlQueryError: null,
+      fileLoaded: false,
     });
   },
 }));

@@ -261,6 +261,20 @@ export class SieveWorkerPool {
     );
   }
 
+  public async resetAll(): Promise<void> {
+    for (let i = 0; i < this.concurrency; i++) {
+      try {
+        await this.execute(
+          {
+            type: 'RESET_ENGINE',
+            requestId: `reset_${Date.now()}_${i}`,
+          },
+          i
+        );
+      } catch {}
+    }
+  }
+
   public async aggregateFragmentedLongTail(targetCPA?: number): Promise<FragmentedLongTailResult> {
     const res = await this.execute({
       type: 'AGGREGATE_FRAGMENTED_LONG_TAIL',

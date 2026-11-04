@@ -127,11 +127,12 @@ test('Phase 7 Brand Integration: Modal dialog headers embed /sieve.svg vector br
   assert.strictEqual(exportLogo.getAttribute('src'), '/sieve.svg');
   unmountExport();
 
-  // 2. ReportConfigModal header brand integration
+  // 2. ReportConfigModal header brand integration (portaled to document.body)
   const { container: reportContainer, unmount: unmountReport } = render(
     <ReportConfigModal isOpen={true} onClose={() => {}} />
   );
-  const reportLogo = reportContainer.querySelector('[data-testid="report-modal-logo"]') as HTMLImageElement;
+  const reportLogo = (reportContainer.querySelector('[data-testid="report-modal-logo"]') ||
+    document.body.querySelector('[data-testid="report-modal-logo"]')) as HTMLImageElement;
   assert.ok(reportLogo, 'ReportConfigModal header must feature /sieve.svg brand asset');
   assert.strictEqual(reportLogo.getAttribute('src'), '/sieve.svg');
   unmountReport();

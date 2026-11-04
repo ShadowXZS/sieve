@@ -71,6 +71,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
 
   return (
     <div
+      data-testid="virtual-grid-container"
       className={`flex flex-col h-full w-full rounded-xl bg-zinc-900/60 border border-zinc-800 shadow-xl overflow-hidden backdrop-blur-sm ${className}`}
     >
       {/* Header Bar */}

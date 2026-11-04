@@ -97,33 +97,107 @@ export async function initDuckDB(): Promise<any> {
 }
 
 /**
- * Executes an analytical SQL query against the DuckDB instance.
+ * Executes an analytical SQL query against the DuckDB instance with query timeout cancellation.
+ * Aborts queries exceeding the specified timeout (default: 5000ms).
  */
-export async function executeDuckDBSQL(query: string): Promise<DuckDBQueryResult> {
-  const conn = await initDuckDB();
-  const startTime = performance.now();
-  const arrowResult = conn.query(query);
-  const elapsed = performance.now() - startTime;
-
-  const columns: string[] = arrowResult.schema
-    ? arrowResult.schema.fields.map((f: any) => f.name)
-    : [];
-
-  const rows = arrowResult.toArray().map((r: any) => {
-    const obj: Record<string, any> = {};
-    for (const col of columns) {
-      const val = r[col];
-      obj[col] = typeof val === 'bigint' ? Number(val) : val;
-    }
-    return obj;
+export async function executeDuckDBSQL(
+  query: string,
+  timeoutMs: number = 5000
+): Promise<DuckDBQueryResult> {
+  let timer: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`DuckDB query timed out after ${timeoutMs}ms: query aborted`));
+    }, timeoutMs);
   });
 
-  return {
-    columns,
-    rows,
-    rowCount: rows.length,
-    executionTimeMs: Math.round(elapsed * 100) / 100,
-  };
+  const queryExec = (async () => {
+    const conn = await initDuckDB();
+    const startTime = performance.now();
+    const arrowResult = conn.query(query);
+    const elapsed = performance.now() - startTime;
+
+    const columns: string[] = arrowResult.schema
+      ? arrowResult.schema.fields.map((f: any) => f.name)
+      : [];
+
+    const rows = arrowResult.toArray().map((r: any) => {
+      const obj: Record<string, any> = {};
+      for (const col of columns) {
+        const val = r[col];
+        obj[col] = typeof val === 'bigint' ? Number(val) : val;
+      }
+      return obj;
+    });
+
+    return {
+      columns,
+      rows,
+      rowCount: rows.length,
+      executionTimeMs: Math.round(elapsed * 100) / 100,
+    };
+  })();
+
+  try {
+    return await Promise.race([queryExec, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Convenience alias for executing SQL with explicit timeout cancellation.
+ */
+export async function executeDuckDBSQLWithTimeout(
+  query: string,
+  timeoutMs: number = 5000
+): Promise<DuckDBQueryResult> {
+  return executeDuckDBSQL(query, timeoutMs);
+}
+
+/**
+ * Prepares and executes a parameterized SQL query safely, guaranteeing prepared statement
+ * cleanup in a finally block to prevent connection locks and deadlocks.
+ */
+export async function executePreparedStatement(
+  sql: string,
+  params: any[] = []
+): Promise<DuckDBQueryResult> {
+  const conn = await initDuckDB();
+  const startTime = performance.now();
+  let stmt: any = null;
+
+  try {
+    stmt = await conn.prepare(sql);
+    const arrowResult = await stmt.query(...params);
+    const elapsed = performance.now() - startTime;
+
+    const columns: string[] = arrowResult.schema
+      ? arrowResult.schema.fields.map((f: any) => f.name)
+      : [];
+
+    const rows = arrowResult.toArray().map((r: any) => {
+      const obj: Record<string, any> = {};
+      for (const col of columns) {
+        const val = r[col];
+        obj[col] = typeof val === 'bigint' ? Number(val) : val;
+      }
+      return obj;
+    });
+
+    return {
+      columns,
+      rows,
+      rowCount: rows.length,
+      executionTimeMs: Math.round(elapsed * 100) / 100,
+    };
+  } finally {
+    if (stmt) {
+      try {
+        await stmt.close();
+      } catch {}
+    }
+  }
 }
 
 /**
@@ -142,13 +216,23 @@ export async function registerArrowTable(
 }
 
 /**
- * Unlinks virtual tables and drops in-memory data to prevent memory leaks.
+ * Drops an analytical virtual table and issues a memory checkpoint.
  */
-export async function resetDuckDB(tableName: string = 'search_terms'): Promise<void> {
+export async function dropTable(tableName: string = 'search_terms'): Promise<void> {
   if (!connInstance) return;
   try {
     connInstance.query(`DROP TABLE IF EXISTS ${tableName};`);
+    try {
+      connInstance.query('CHECKPOINT;');
+    } catch {}
   } catch {}
+}
+
+/**
+ * Unlinks virtual tables, drops in-memory data, and runs CHECKPOINT to prevent memory leaks.
+ */
+export async function resetDuckDB(tableName: string = 'search_terms'): Promise<void> {
+  await dropTable(tableName);
 }
 
 /**

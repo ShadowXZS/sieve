@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { ExecutiveDashboard } from '../dashboard/ExecutiveDashboard.tsx';
+import { useSieveStore } from '../../state/useSieveStore.ts';
 
 export interface AppShellProps {
   header?: React.ReactNode;
@@ -30,6 +30,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   powerQueryDrawer,
   className = '',
 }) => {
+  const fileLoaded = useSieveStore((s) => s.fileLoaded);
+
   return (
     <div
       data-testid="app-shell"
@@ -43,7 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         role="main"
         className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 ${className}`}
       >
-        {dashboard}
+        {dashboard && fileLoaded && dashboard}
         {children}
       </main>
 

@@ -167,7 +167,7 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
               </View>
             </View>
             <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.safeList.dark }]}>
-              {execAnalytics.safeListProtection.protectedConversions.toLocaleString()} Convs
+              {execAnalytics.safeListProtection.protectedConversions.toLocaleString()} Conv.
             </Text>
             <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
               Secured: {execAnalytics.safeListProtection.formattedSecuredRevenue}
@@ -227,7 +227,7 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
               </View>
             </View>
             <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }]}>
-              +{execAnalytics.reallocationYield.incrementalConversions.toFixed(1)} Convs
+              +{execAnalytics.reallocationYield.incrementalConversions.toFixed(1)} Conv.
             </Text>
             <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
               Annual: {execAnalytics.reallocationYield.formattedAnnualizedRecovery}

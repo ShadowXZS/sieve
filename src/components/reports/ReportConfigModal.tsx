@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   FileText,
@@ -164,12 +165,12 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm transition-opacity duration-150 ease-out"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto transition-opacity duration-150 ease-out"
       onClick={onClose}
     >
       <div
@@ -434,5 +435,9 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 };
 

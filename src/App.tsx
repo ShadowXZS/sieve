@@ -34,6 +34,7 @@ import {
   triggerBrowserVaultDownload,
 } from './sync/filesystem.ts';
 import { defaultDb } from './storage/db.ts';
+import { resetDuckDB, dropTable } from './analytics/duckdb.ts';
 import { useSieveStore } from './state/useSieveStore.ts';
 
 export const App: React.FC = () => {
@@ -44,8 +45,23 @@ export const App: React.FC = () => {
   );
   const [attestation, setAttestation] = useState<ZeroLeakAttestation | null>(null);
 
-  const { keywords, filteredKeywords, kpi, isIngesting, ingestionProgress } =
+  const { keywords, filteredKeywords, kpi, isIngesting, ingestionProgress, fileLoaded, reset } =
     useSieveStore();
+
+  const handleClearDataset = async () => {
+    reset();
+    if (workerPool) {
+      await workerPool.resetAll();
+    }
+    try {
+      await dropTable('search_terms');
+      await resetDuckDB();
+    } catch {}
+    try {
+      await defaultDb.exclusions.clear();
+      await defaultDb.hashChunks.clear();
+    } catch {}
+  };
 
   useEffect(() => {
     // Generate deterministic session audit hash & zero-leak attestation
@@ -96,6 +112,7 @@ export const App: React.FC = () => {
         <BrandHeader
           workerConcurrency={workerPool?.concurrency || 4}
           onOpenPrivacyModal={() => setPrivacyModalOpen(true)}
+          onClearDataset={handleClearDataset}
         />
       }
       footer={
@@ -104,46 +121,46 @@ export const App: React.FC = () => {
         </footer>
       }
     >
-      {/* Executive Analytics Dashboard - Equal Column Grid */}
-      <section aria-label="KPI Metrics">
-        <ExecutiveDashboard />
-      </section>
+      {!fileLoaded ? (
+        /* Pre-Upload State: When no file is loaded, hide ALL downstream widgets; only show Dropzone */
+        <section aria-label="File Ingestion">
+          <FileDropzone workerPool={workerPool || undefined} />
+        </section>
+      ) : (
+        /* Chronological Layout Once Loaded:
+           Dropzone/FileBar -> Threshold Controls -> Executive Analytics Dashboard -> Virtualized Detailed Keyword Grid
+        */
+        <>
+          {/* 1. Ingestion Status Bar (with "Clear Dataset" button) */}
+          <section aria-label="Ingestion Status Bar" data-testid="active-file-bar">
+            <WorkerProcessingHUD
+              workerPool={workerPool || undefined}
+              onClearDataset={handleClearDataset}
+            />
+          </section>
 
-      {/* Spend Waterfall Breakdown Bar */}
-      <section aria-label="Spend Waterfall">
-        <SpendWaterfallBar />
-      </section>
+          {/* 2. Live Threshold Controls */}
+          <section aria-label="Threshold Controls">
+            <ThresholdControls workerPool={workerPool || undefined} />
+          </section>
 
-      {/* Bid Elasticity Probe */}
-      <section aria-label="Bid Elasticity">
-        <BidElasticityProbe />
-      </section>
+          {/* 3. Executive Analytics Dashboard */}
+          <section aria-label="Executive Analytics Dashboard" className="space-y-6">
+            <ExecutiveDashboard />
+            <SpendWaterfallBar />
+            <BidElasticityProbe />
+            <div aria-label="Secondary Diagnostic Analysis" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LongTailBleedCard />
+              <DilutionAuditCard />
+            </div>
+          </section>
 
-      {/* Secondary Analysis Grid: Long-Tail Bleed & Match Dilution Audit */}
-      <section aria-label="Secondary Diagnostic Analysis" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <LongTailBleedCard />
-        <DilutionAuditCard />
-      </section>
-
-      {/* Worker Processing HUD - Brand Integrated Multi-Threaded Status */}
-      <section aria-label="Worker Processing HUD">
-        <WorkerProcessingHUD workerPool={workerPool || undefined} />
-      </section>
-
-      {/* Dropzone & File Ingestion with Ambient Watermark */}
-      <section aria-label="File Ingestion">
-        <FileDropzone workerPool={workerPool || undefined} />
-      </section>
-
-      {/* Live Threshold Controls - Balanced Two-Column Surface */}
-      <section aria-label="Threshold Controls">
-        <ThresholdControls workerPool={workerPool || undefined} />
-      </section>
-
-      {/* Virtualized Keyword Grid - Numeric Tabular Data Alignment */}
-      <section aria-label="Negative Keyword Rules" className="h-[550px] flex flex-col">
-        <KeywordVirtualGrid />
-      </section>
+          {/* 4. Virtualized Detailed Keyword Grid */}
+          <section aria-label="Negative Keyword Rules" className="h-[550px] flex flex-col">
+            <KeywordVirtualGrid />
+          </section>
+        </>
+      )}
 
       {/* Centered Vector Processing Pulse Overlay */}
       <ProcessingOverlay isProcessing={isIngesting} progress={ingestionProgress} />

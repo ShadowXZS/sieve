@@ -1004,6 +1004,7 @@ export class SieveWorkerCore {
           if (this.duckdbConn) {
             try {
               this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
+              this.duckdbConn.query('CHECKPOINT;');
             } catch {}
           }
           return {
@@ -1049,6 +1050,7 @@ export class SieveWorkerCore {
           if (this.duckdbConn) {
             try {
               this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
+              this.duckdbConn.query('CHECKPOINT;');
             } catch {}
           }
           return {

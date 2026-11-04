@@ -78,6 +78,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
 
   return (
     <div
+      data-testid="threshold-controls"
       className={`p-5 rounded-xl bg-zinc-900/70 border border-zinc-800 shadow-lg backdrop-blur-md transition-all duration-150 ease-out ${className}`}
     >
       <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
