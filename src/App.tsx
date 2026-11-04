@@ -8,7 +8,9 @@
 import React, { useEffect, useState } from 'react';
 import { SieveWorkerPool } from './workers/pool.ts';
 import { FileDropzone } from './components/dropzone/FileDropzone.tsx';
-import { SummaryDashboard } from './components/kpi/SummaryDashboard.tsx';
+import { ExecutiveDashboard } from './components/dashboard/ExecutiveDashboard.tsx';
+import { SpendWaterfallBar } from './components/dashboard/SpendWaterfallBar.tsx';
+import { BidElasticityProbe } from './components/dashboard/BidElasticityProbe.tsx';
 import { ThresholdControls } from './components/sliders/ThresholdControls.tsx';
 import { KeywordVirtualGrid } from './components/grid/KeywordVirtualGrid.tsx';
 import { WorkerProcessingHUD } from './components/hud/WorkerProcessingHUD.tsx';
@@ -91,9 +93,19 @@ export const App: React.FC = () => {
         </footer>
       }
     >
-      {/* KPI Dashboard - Equal Column Grid */}
+      {/* Executive Analytics Dashboard - Equal Column Grid */}
       <section aria-label="KPI Metrics">
-        <SummaryDashboard />
+        <ExecutiveDashboard />
+      </section>
+
+      {/* Spend Waterfall Breakdown Bar */}
+      <section aria-label="Spend Waterfall">
+        <SpendWaterfallBar />
+      </section>
+
+      {/* Bid Elasticity Probe */}
+      <section aria-label="Bid Elasticity">
+        <BidElasticityProbe />
       </section>
 
       {/* Worker Processing HUD - Brand Integrated Multi-Threaded Status */}

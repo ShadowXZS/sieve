@@ -7,11 +7,13 @@
  */
 
 import React from 'react';
+import { ExecutiveDashboard } from '../dashboard/ExecutiveDashboard.tsx';
 
 export interface AppShellProps {
   header?: React.ReactNode;
   footer?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  dashboard?: React.ReactNode;
   className?: string;
 }
 
@@ -23,6 +25,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     </footer>
   ),
   children,
+  dashboard,
   className = '',
 }) => {
   return (
@@ -38,6 +41,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         role="main"
         className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 ${className}`}
       >
+        {dashboard}
         {children}
       </main>
 
