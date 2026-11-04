@@ -486,3 +486,66 @@ test('ExportModal mounts on action button trigger, switches format tabs, and han
   assert.strictEqual(screen.queryByRole('dialog'), null, 'Modal must close on Escape key');
 });
 
+test('ReportConfigModal mounts on PDF button trigger, adjusts reallocation parameters, and dismisses gracefully', async () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  const mockKeywords: PersistedNegativeKeyword[] = [
+    {
+      sha256Hash: 'hash_report_1',
+      keyword: 'free download software',
+      matchType: 'exact',
+      formattedRule: '[free download software]',
+      platform: 1,
+      confidenceScore: 0.98,
+      marginalWaste: 500,
+      hasCollision: false,
+      clicks: 50,
+      createdAt: Date.now(),
+    },
+  ];
+  useSieveStore.getState().setKeywords(mockKeywords);
+
+  render(
+    <div style={{ height: '600px', width: '1000px' }}>
+      <KeywordVirtualGrid />
+    </div>
+  );
+
+  // Initial state: Modal should not be in DOM
+  assert.strictEqual(screen.queryByRole('dialog'), null);
+
+  // Click "Generate PDF Report" button
+  const pdfBtn = screen.getByRole('button', { name: /generate pdf report/i });
+  await act(async () => {
+    fireEvent.click(pdfBtn);
+  });
+
+  // Modal dialog is now visible
+  const dialog = screen.getByRole('dialog');
+  assert.ok(dialog, 'Report modal dialog must mount');
+  assert.ok(screen.getByText(/Generate Vector Audit Report/i));
+
+  // Verify Organization Title input is editable
+  const titleInput = screen.getByRole('textbox', { name: /client \/ organization title/i }) as HTMLInputElement;
+  assert.ok(titleInput);
+  await act(async () => {
+    fireEvent.change(titleInput, { target: { value: 'Hyperion Holdings' } });
+  });
+  assert.strictEqual(titleInput.value, 'Hyperion Holdings');
+
+  // Verify switching to Forensic Diagnostic Deck
+  const deckBtn = screen.getByRole('button', { name: /forensic diagnostic deck/i });
+  await act(async () => {
+    fireEvent.click(deckBtn);
+  });
+  assert.ok(deckBtn.className.includes('indigo'));
+
+  // Dismiss via Escape key
+  await act(async () => {
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+  });
+
+  assert.strictEqual(screen.queryByRole('dialog'), null, 'Report modal must close on Escape key');
+});
+

@@ -84,6 +84,8 @@ export interface CPADragMetrics {
  * Indexed by sha256Hash for sub-5ms delta checks against existing rulesets.
  */
 export interface PersistedNegativeKeyword {
+  /** Optional identifier alias */
+  id?: string;
   /** Deterministic SHA-256 hash of the normalized keyword + match type (primary key / index) */
   sha256Hash: string;
   /** Keyword text */
@@ -102,6 +104,18 @@ export interface PersistedNegativeKeyword {
   hasCollision: boolean;
   /** Terms that caused collision safety override */
   collidingSafeTerms?: string[];
+  /** Colliding term alias */
+  collidingTerm?: string;
+  /** Traffic clicks recorded for search term */
+  clicks?: number;
+  /** Total spend / cost recorded */
+  cost?: number;
+  /** Total conversions recorded */
+  conversions?: number;
+  /** Linguistic fingerprint / cluster identifier */
+  linguisticFingerprint?: string;
+  /** Campaign where search term was first identified */
+  firstSeenCampaign?: string;
   /** Timestamp when keyword candidate was synthesized */
   createdAt: number;
   /** Campaign or AdGroup scope where applicable */

@@ -11,9 +11,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import { CollisionBadge } from '../badges/CollisionBadge.tsx';
 import { ExportModal } from '../export/ExportModal.tsx';
+import { ReportConfigModal } from '../reports/ReportConfigModal.tsx';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
-import { Search, Copy, Check, Download } from 'lucide-react';
+import { Search, Copy, Check, Download, FileText } from 'lucide-react';
 
 export interface KeywordVirtualGridProps {
   className?: string;
@@ -25,6 +26,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Fast client search query filter
   const displayedItems = useMemo(() => {
@@ -90,6 +92,15 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+          >
+            <FileText className="w-3.5 h-3.5 text-indigo-400" />
+            Generate PDF Report
+          </button>
+
           <button
             type="button"
             onClick={() => setIsExportModalOpen(true)}
@@ -229,6 +240,12 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         keywords={displayedItems}
+      />
+
+      {/* Vector PDF Report Modal */}
+      <ReportConfigModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
       />
     </div>
   );
