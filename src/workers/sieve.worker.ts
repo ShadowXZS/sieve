@@ -130,7 +130,7 @@ export class SieveWorkerCore {
   public async handleCommand(command: WorkerCommand): Promise<WorkerResponse> {
     try {
       if (!this.initialized && command.type !== 'INIT_WASM') {
-        await this.init(command.type === 'INIT_WASM' ? command.wasmBuffer : undefined);
+        await this.init();
       }
 
       switch (command.type) {

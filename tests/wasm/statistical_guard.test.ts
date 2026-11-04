@@ -15,7 +15,7 @@ async function loadWasm() {
   } catch {
     wasmBuffer = await fs.readFile(targetWasmPath);
   }
-  const wasmModule = await WebAssembly.compile(wasmBuffer);
+  const wasmModule = await WebAssembly.compile(new Uint8Array(wasmBuffer));
   const exports: Record<string, any> = {};
   const imports = {
     "./sieve_core_bg.js": {
