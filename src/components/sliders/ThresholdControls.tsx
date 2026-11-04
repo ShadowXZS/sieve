@@ -7,8 +7,9 @@
  */
 
 import React, { useCallback, useRef } from 'react';
-import { Sliders, Percent, DollarSign, Target, MousePointerClick } from 'lucide-react';
+import { Sliders, Percent, Target, MousePointerClick } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
+import { formatCurrency } from '../../utils/currency.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
 
 export interface ThresholdControlsProps {
@@ -20,7 +21,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
   workerPool,
   className = '',
 }) => {
-  const { thresholds, updateThresholds } = useSieveStore();
+  const { thresholds, updateThresholds, currency } = useSieveStore();
   const rafId = useRef<number | null>(null);
 
   const dispatchWorkerRecalculation = useCallback(
@@ -133,11 +134,13 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               htmlFor="waste-slider"
               className="flex items-center gap-1.5 font-medium text-zinc-300"
             >
-              <DollarSign className="w-3.5 h-3.5 text-rose-400" />
+              <span className="w-3.5 h-3.5 flex items-center justify-center font-bold text-xs text-rose-400 font-mono select-none">
+                {currency}
+              </span>
               <span>Max Marginal Waste</span>
             </label>
             <span className="font-mono tabular-nums text-rose-400 font-semibold min-w-16 text-right">
-              ${thresholds.maxMarginalWaste.toLocaleString()}
+              {formatCurrency(thresholds.maxMarginalWaste, currency, true)}
             </span>
           </div>
           <input
@@ -152,8 +155,8 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-rose-500 outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
           <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
-            <span>$50</span>
-            <span>$10,000</span>
+            <span>{formatCurrency(50, currency, true)}</span>
+            <span>{formatCurrency(10000, currency, true)}</span>
           </div>
         </div>
 
@@ -168,7 +171,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <span>Target Account CPA</span>
             </label>
             <span className="font-mono tabular-nums text-emerald-400 font-semibold min-w-10 text-right">
-              ${thresholds.targetCPA}
+              {formatCurrency(thresholds.targetCPA, currency, true)}
             </span>
           </div>
           <input
@@ -183,8 +186,8 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
           <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
-            <span>$10</span>
-            <span>$300</span>
+            <span>{formatCurrency(10, currency, true)}</span>
+            <span>{formatCurrency(300, currency, true)}</span>
           </div>
         </div>
 

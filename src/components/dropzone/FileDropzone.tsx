@@ -83,6 +83,12 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             const sliceBlob = file.slice(startByte, endByte);
             const chunkBuffer = await sliceBlob.arrayBuffer();
 
+            // Auto-detect currency from initial file chunk if not manually overridden
+            if (chunkIdx === 0) {
+              const headerSample = chunkBuffer.slice(0, Math.min(32768, chunkBuffer.byteLength));
+              useSieveStore.getState().autoDetectCurrency(headerSample);
+            }
+
             if (workerPool) {
               const taskId = `task_${Date.now()}_${i}_${chunkIdx}`;
               const res = await workerPool.executeIngestion(

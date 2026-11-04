@@ -27,7 +27,10 @@ pub use engine::{MetricAggregate, NGramAggregator, RadixTrie, SieveEngine, Strea
 pub use guard::{CollisionGuard, SafeListIndex};
 pub use linguistics::{cluster_tokens, damerau_levenshtein, export_clusters_json, phonetic_code};
 pub use matrix::evaluate_combinatorial_variations;
-pub use schema::{detect_platform_schema, parse_localized_number, PlatformSchema, SchemaMapping};
+pub use schema::{
+    detect_currency, detect_platform_schema, parse_localized_number, CurrencySymbol,
+    PlatformSchema, SchemaMapping,
+};
 pub use stats::{beta_cdf, calculate_beta_posterior, calculate_cpa_drag, calculate_wilson_score};
 pub use tokenizer::tokenize_ngrams;
 
@@ -89,6 +92,17 @@ pub extern "C" fn detect_schema(ptr: *const u8, len: usize) -> u32 {
     // SAFETY: Pointer is valid for len bytes per caller contract.
     let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
     detect_platform_schema(slice) as u32
+}
+
+#[no_mangle]
+#[wasm_bindgen]
+pub extern "C" fn detect_currency_symbol(ptr: *const u8, len: usize) -> u32 {
+    if ptr.is_null() || len == 0 {
+        return CurrencySymbol::Unknown as u32;
+    }
+    // SAFETY: Pointer is valid for len bytes per caller contract.
+    let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+    detect_currency(slice) as u32
 }
 
 // -----------------------------------------------------------------------------

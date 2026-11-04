@@ -331,7 +331,8 @@ describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', (
     assert.equal(formatCurrency(1234.56, '$'), '$1,234.56');
     assert.equal(formatCurrency(987654.321, '€'), '€987,654.32');
     assert.equal(formatCurrency(50000, '£'), '£50,000.00');
-    assert.equal(formatCurrency(1000000, '¥'), '¥1,000,000.00');
+    assert.equal(formatCurrency(1000000, '¥'), '¥1,000,000');
+    assert.equal(formatCurrency(1234567.89, '₹'), '₹12,34,567.89');
 
     // AuditOnePager with localized Euro symbol
     const euroDoc = React.createElement(AuditOnePager, {

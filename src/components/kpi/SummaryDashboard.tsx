@@ -2,25 +2,22 @@
  * Summary KPI Dashboard Component
  *
  * Displays top-level financial, statistical, and safety metrics derived from
- * the Sieve WebAssembly aggregation and Bayesian scoring pipeline.
+ * the Sieve WebAssembly aggregation and Bayesian scoring pipeline with multi-currency support.
  */
 
 import React from 'react';
-import { DollarSign, ShieldAlert, Sparkles, Filter } from 'lucide-react';
+import { ShieldAlert, Sparkles, Filter } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
+import { formatCurrency } from '../../utils/currency.ts';
 
 export interface SummaryDashboardProps {
   className?: string;
 }
 
 export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({ className = '' }) => {
-  const { kpi } = useSieveStore();
+  const { kpi, currency } = useSieveStore();
 
-  const formattedWaste = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(kpi.totalWaste);
+  const formattedWaste = formatCurrency(kpi.totalWaste, currency);
 
   return (
     <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 ${className}`}>
@@ -29,8 +26,8 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({ className = 
         <div>
           <div className="flex items-center justify-between text-zinc-400 mb-2">
             <span className="text-xs font-medium uppercase tracking-wider">Identified Waste</span>
-            <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
-              <DollarSign className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center font-mono font-bold text-xs select-none">
+              <span>{currency}</span>
             </div>
           </div>
           <div className="text-2xl font-bold font-mono tabular-nums text-zinc-100 mb-1">{formattedWaste}</div>
@@ -92,4 +89,3 @@ export const SummaryDashboard: React.FC<SummaryDashboardProps> = ({ className = 
     </div>
   );
 };
-

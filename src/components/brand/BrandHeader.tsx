@@ -1,12 +1,14 @@
 /**
  * BrandHeader Component
  *
- * Implements bilateral header symmetry with brand prominence on the left
- * and system telemetry/status actions on the right with 150ms spring transitions.
+ * Implements bilateral header symmetry with brand prominence on the left,
+ * multi-currency manual override toggle, and system telemetry/status actions
+ * on the right with 150ms spring transitions.
  */
 
 import React from 'react';
 import { SieveLogo } from './SieveLogo.tsx';
+import { CurrencySelector } from './CurrencySelector.tsx';
 import { Cpu, Database, ShieldCheck } from 'lucide-react';
 
 export interface BrandHeaderProps {
@@ -20,6 +22,7 @@ export const BrandHeader: React.FC<BrandHeaderProps> = ({
   onOpenPrivacyModal,
   className = '',
 }) => {
+
   return (
     <header
       role="banner"
@@ -48,6 +51,9 @@ export const BrandHeader: React.FC<BrandHeaderProps> = ({
 
       {/* Badges & Actions (Right Anchor) */}
       <div className="flex items-center gap-3 text-xs font-mono tabular-nums">
+        {/* Multi-Currency Manual Override Toggle */}
+        <CurrencySelector />
+
         <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-zinc-950/80 border border-zinc-800 text-zinc-400">
           <Cpu className="w-3.5 h-3.5 text-indigo-400" />
           <span>Workers: {workerConcurrency} threads</span>

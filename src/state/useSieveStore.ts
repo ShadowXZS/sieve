@@ -2,12 +2,21 @@
  * Sieve Reactive UI State Store (Zustand)
  *
  * Provides real-time reactive state management for ingested keyword datasets,
- * dynamic threshold filters, KPI metrics, and file ingestion tracking.
+ * dynamic threshold filters, KPI metrics, multi-currency support, and file ingestion tracking.
  * Optimized for sub-10ms state updates to maintain 60/120 FPS UI performance.
  */
 
 import { create } from 'zustand';
 import type { PersistedNegativeKeyword } from '../workers/protocol.ts';
+import {
+  type SupportedCurrency,
+  SUPPORTED_CURRENCIES,
+  DEFAULT_CURRENCY,
+  detectCurrencyFromData,
+} from '../utils/currency.ts';
+
+export type { SupportedCurrency };
+export { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY };
 
 export interface SieveThresholds {
   confidenceScore: number;
@@ -35,6 +44,8 @@ export interface SieveState {
   filteredKeywords: PersistedNegativeKeyword[];
   thresholds: SieveThresholds;
   kpi: KPISummary;
+  currency: SupportedCurrency;
+  isCurrencyManual: boolean;
   isIngesting: boolean;
   ingestionProgress: number;
   ingestedFiles: IngestedFileInfo[];
@@ -44,6 +55,8 @@ export interface SieveState {
   // Actions
   setKeywords: (keywords: PersistedNegativeKeyword[]) => void;
   updateThresholds: (partial: Partial<SieveThresholds>) => void;
+  setCurrency: (currency: SupportedCurrency, isManual?: boolean) => void;
+  autoDetectCurrency: (data: string | ArrayBuffer | Uint8Array) => SupportedCurrency | null;
   setIngesting: (isIngesting: boolean, progress?: number) => void;
   setErrorMessage: (msg: string | null) => void;
   addIngestedFiles: (files: File[]) => void;
@@ -60,27 +73,45 @@ const DEFAULT_THRESHOLDS: SieveThresholds = {
 
 /**
  * Strict Marginal Waste Definition:
- * - Non-converting terms (Conversions == 0): Marginal Waste = Total Spend.
+ * - Non-converting terms (Conversions <= 0): Marginal Waste = Total Spend.
  * - Converting terms (Conversions > 0): Marginal Waste = Math.max(0, Total Spend - (Conversions * Target CPA)).
+ *
+ * Mathematical Invariants:
+ * - Sanitizes all inputs: Zero NaN, Zero Infinity, Zero negative numbers.
+ * - Enforces zero-decimal rounding for JPY ('¥12,450'), standard 2-decimal formatting for others.
  */
 export function calculateMarginalWaste(
   cost: number | undefined,
   conversions: number | undefined,
   targetCPA: number,
-  fallbackWaste: number = 0
+  fallbackWaste: number = 0,
+  currency?: SupportedCurrency
 ): number {
-  if (cost !== undefined && conversions !== undefined) {
-    if (conversions <= 0) {
-      return Math.round(cost * 100) / 100;
+  const safeCost = typeof cost === 'number' && Number.isFinite(cost) ? Math.max(0, cost) : undefined;
+  const safeConversions =
+    typeof conversions === 'number' && Number.isFinite(conversions) ? Math.max(0, conversions) : undefined;
+  const safeTargetCPA =
+    typeof targetCPA === 'number' && Number.isFinite(targetCPA) ? Math.max(0, targetCPA) : 0;
+
+  if (safeCost !== undefined && safeConversions !== undefined) {
+    let waste = 0;
+    if (safeConversions <= 0) {
+      waste = safeCost;
+    } else {
+      waste = Math.max(0, safeCost - safeConversions * safeTargetCPA);
     }
-    return Math.max(0, Math.round((cost - conversions * targetCPA) * 100) / 100);
+    return currency === '¥' ? Math.round(waste) : Math.round(waste * 100) / 100;
   }
-  return fallbackWaste;
+
+  const safeFallback =
+    typeof fallbackWaste === 'number' && Number.isFinite(fallbackWaste) ? Math.max(0, fallbackWaste) : 0;
+  return currency === '¥' ? Math.round(safeFallback) : Math.round(safeFallback * 100) / 100;
 }
 
 function filterAndComputeKPI(
   keywords: PersistedNegativeKeyword[],
-  thresholds: SieveThresholds
+  thresholds: SieveThresholds,
+  currency: SupportedCurrency = DEFAULT_CURRENCY
 ): { filtered: PersistedNegativeKeyword[]; kpi: KPISummary } {
   const minConfidence = thresholds.confidenceScore;
   const maxWaste = thresholds.maxMarginalWaste;
@@ -96,7 +127,9 @@ function filterAndComputeKPI(
   for (let i = 0; i < len; i++) {
     const k = keywords[i];
     if (k.cost !== undefined && k.conversions !== undefined) {
-      k.marginalWaste = calculateMarginalWaste(k.cost, k.conversions, targetCPA, k.marginalWaste);
+      k.marginalWaste = calculateMarginalWaste(k.cost, k.conversions, targetCPA, k.marginalWaste, currency);
+    } else if (currency === '¥' && typeof k.marginalWaste === 'number') {
+      k.marginalWaste = Math.round(k.marginalWaste);
     }
     if (k.confidenceScore >= minConfidence && k.marginalWaste <= maxWaste) {
       filtered.push(k);
@@ -108,11 +141,16 @@ function filterAndComputeKPI(
   }
 
   const filteredLen = filtered.length;
+  const roundedWaste = currency === '¥' ? Math.round(totalWaste) : Math.round(totalWaste * 100) / 100;
+
   const kpi: KPISummary = {
     totalKeywords: filteredLen,
-    totalWaste: Math.round(totalWaste * 100) / 100,
+    totalWaste: Number.isFinite(roundedWaste) ? roundedWaste : 0,
     collisionCount,
-    avgConfidence: filteredLen > 0 ? Math.round((totalConfidence / filteredLen) * 1000) / 1000 : 0,
+    avgConfidence:
+      filteredLen > 0 && Number.isFinite(totalConfidence)
+        ? Math.round((totalConfidence / filteredLen) * 1000) / 1000
+        : 0,
     exactLockedCount,
   };
 
@@ -132,6 +170,8 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   filteredKeywords: [],
   thresholds: { ...DEFAULT_THRESHOLDS },
   kpi: EMPTY_KPI,
+  currency: DEFAULT_CURRENCY,
+  isCurrencyManual: false,
   isIngesting: false,
   ingestionProgress: 0,
   ingestedFiles: [],
@@ -139,8 +179,8 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   errorMessage: null,
 
   setKeywords: (keywords: PersistedNegativeKeyword[]) => {
-    const thresholds = get().thresholds;
-    const { filtered, kpi } = filterAndComputeKPI(keywords, thresholds);
+    const { thresholds, currency } = get();
+    const { filtered, kpi } = filterAndComputeKPI(keywords, thresholds, currency);
     set({
       keywords,
       filteredKeywords: filtered,
@@ -150,13 +190,36 @@ export const useSieveStore = create<SieveState>((set, get) => ({
 
   updateThresholds: (partial: Partial<SieveThresholds>) => {
     const nextThresholds = { ...get().thresholds, ...partial };
-    const all = get().keywords;
-    const { filtered, kpi } = filterAndComputeKPI(all, nextThresholds);
+    const { keywords, currency } = get();
+    const { filtered, kpi } = filterAndComputeKPI(keywords, nextThresholds, currency);
     set({
       thresholds: nextThresholds,
       filteredKeywords: filtered,
       kpi,
     });
+  },
+
+  setCurrency: (currency: SupportedCurrency, isManual: boolean = true) => {
+    const { keywords, thresholds } = get();
+    const { filtered, kpi } = filterAndComputeKPI(keywords, thresholds, currency);
+    set({
+      currency,
+      isCurrencyManual: isManual,
+      filteredKeywords: filtered,
+      kpi,
+    });
+  },
+
+  autoDetectCurrency: (data: string | ArrayBuffer | Uint8Array) => {
+    if (get().isCurrencyManual) {
+      return get().currency;
+    }
+    const detected = detectCurrencyFromData(data);
+    if (detected) {
+      get().setCurrency(detected, false);
+      return detected;
+    }
+    return null;
   },
 
   setIngesting: (isIngesting: boolean, progress: number = 0) => {
@@ -187,6 +250,8 @@ export const useSieveStore = create<SieveState>((set, get) => ({
       filteredKeywords: [],
       thresholds: { ...DEFAULT_THRESHOLDS },
       kpi: EMPTY_KPI,
+      currency: DEFAULT_CURRENCY,
+      isCurrencyManual: false,
       isIngesting: false,
       ingestionProgress: 0,
       ingestedFiles: [],

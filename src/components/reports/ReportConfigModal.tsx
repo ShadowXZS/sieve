@@ -18,7 +18,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
-import { calculateReallocationModel } from '../../reports/reallocation.ts';
+import { calculateReallocationModel, formatCurrency } from '../../reports/reallocation.ts';
 import { AuditOnePager } from '../../reports/pdf/AuditOnePager.tsx';
 import { ForensicDeck } from '../../reports/pdf/ForensicDeck.tsx';
 import { generatePdfBlob, downloadPdfBlob } from '../../reports/pdf/renderer.ts';
@@ -43,7 +43,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { filteredKeywords, kpi, thresholds } = useSieveStore();
+  const { filteredKeywords, kpi, thresholds, currency } = useSieveStore();
 
   const [reportType, setReportType] = useState<ReportType>('one_pager');
   const [organizationTitle, setOrganizationTitle] = useState('Acme Corp PPC Audit');
@@ -110,6 +110,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           organizationTitle,
           accentColor,
           notes,
+          currencySymbol: currency,
           kpi,
           reallocation,
           topKeywords,
@@ -121,6 +122,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
           organizationTitle,
           accentColor,
           notes,
+          currencySymbol: currency,
           kpi,
           reallocation,
           keywords: topKeywords,
@@ -289,7 +291,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-zinc-400">Historical Marginal CPA:</span>
                 <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5">
-                  <span className="text-zinc-400 mr-1">$</span>
+                  <span className="text-zinc-400 mr-1 font-mono">{currency}</span>
                   <input
                     type="number"
                     min="1"
@@ -306,7 +308,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
               <div className="p-2 bg-zinc-900/60 rounded border border-zinc-800">
                 <div className="text-[10px] text-zinc-400 uppercase font-mono">Waste Recovered</div>
                 <div className="text-sm font-semibold text-emerald-400 mt-0.5 font-mono tabular-nums">
-                  ${(kpi.totalWaste || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {formatCurrency(kpi.totalWaste || 0, currency, true)}
                 </div>
               </div>
               <div className="p-2 bg-zinc-900/60 rounded border border-zinc-800">

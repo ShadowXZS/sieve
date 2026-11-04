@@ -9,6 +9,7 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSieveStore } from '../../state/useSieveStore.ts';
+import { formatCurrency } from '../../utils/currency.ts';
 import { CollisionBadge } from '../badges/CollisionBadge.tsx';
 import { ExportModal } from '../export/ExportModal.tsx';
 import { ReportConfigModal } from '../reports/ReportConfigModal.tsx';
@@ -21,7 +22,7 @@ export interface KeywordVirtualGridProps {
 }
 
 export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ className = '' }) => {
-  const { filteredKeywords, selectedKeyword, setSelectedKeyword } = useSieveStore();
+  const { filteredKeywords, selectedKeyword, setSelectedKeyword, currency } = useSieveStore();
   const parentRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
@@ -221,7 +222,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
 
                   {/* Marginal Waste */}
                   <div className="col-span-2 font-mono tabular-nums text-rose-400 font-semibold">
-                    ${(kw.marginalWaste || 0).toFixed(2)}
+                    {formatCurrency(kw.marginalWaste || 0, currency)}
                   </div>
 
                   {/* Conflict Guard Badge */}

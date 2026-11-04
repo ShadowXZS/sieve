@@ -128,14 +128,4 @@ export function calculateCapitalEfficiency(
   return Math.round((currentCPA / marginalCPA) * 100) / 100;
 }
 
-/**
- * Standardized currency formatter ensuring uniform font metric spacing
- * across localized currency glyphs without text clipping in PDF layouts.
- */
-export function formatCurrency(amount: number, currencySymbol: string = '$'): string {
-  const num = Number.isFinite(amount) ? amount : 0;
-  return `${currencySymbol}${num.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
+export { formatCurrency, type SupportedCurrency } from '../utils/currency.ts';

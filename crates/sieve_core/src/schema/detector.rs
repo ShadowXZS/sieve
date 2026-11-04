@@ -14,6 +14,30 @@ pub enum PlatformSchema {
     MicrosoftAdvertising = 3,
 }
 
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CurrencySymbol {
+    Unknown = 0,
+    Dollar = 1, // $
+    Inr = 2,    // ₹
+    Eur = 3,    // €
+    Jpy = 4,    // ¥
+    Gbp = 5,    // £
+}
+
+impl CurrencySymbol {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CurrencySymbol::Dollar => "$",
+            CurrencySymbol::Inr => "₹",
+            CurrencySymbol::Eur => "€",
+            CurrencySymbol::Jpy => "¥",
+            CurrencySymbol::Gbp => "£",
+            CurrencySymbol::Unknown => "$",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct SchemaMapping {
     pub schema: PlatformSchema,
@@ -364,26 +388,198 @@ pub fn resolve_schema_mapping(fields: &[&[u8]]) -> SchemaMapping {
     mapping
 }
 
+/// Detects currency symbol from CSV header or data byte slices.
+/// Strictly supports: Dollar ($), Inr (₹), Eur (€), Jpy (¥), and Gbp (£).
+pub fn detect_currency(mut bytes: &[u8]) -> CurrencySymbol {
+    if bytes.is_empty() {
+        return CurrencySymbol::Unknown;
+    }
+
+    // Strip UTF-8 BOM if present
+    if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+        bytes = &bytes[3..];
+    }
+
+    // Handle UTF-16LE BOM
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        let utf16_slice = &bytes[2..];
+        let mut ascii_buf = [0u8; 2048];
+        let mut count = 0;
+        let mut i = 0;
+        while i + 1 < utf16_slice.len() && count < ascii_buf.len() {
+            let low = utf16_slice[i];
+            let high = utf16_slice[i + 1];
+            if high == 0 {
+                ascii_buf[count] = low;
+                count += 1;
+            } else if high == 0x20 && low == 0xAC {
+                // UTF-16LE € -> write UTF-8 €
+                if count + 2 < ascii_buf.len() {
+                    ascii_buf[count] = 0xE2;
+                    ascii_buf[count + 1] = 0x82;
+                    ascii_buf[count + 2] = 0xAC;
+                    count += 3;
+                }
+            } else if high == 0x20 && low == 0xB9 {
+                // UTF-16LE ₹ -> write UTF-8 ₹
+                if count + 2 < ascii_buf.len() {
+                    ascii_buf[count] = 0xE2;
+                    ascii_buf[count + 1] = 0x82;
+                    ascii_buf[count + 2] = 0xB9;
+                    count += 3;
+                }
+            }
+            i += 2;
+        }
+        return detect_currency_slice(&ascii_buf[..count]);
+    }
+
+    // Handle UTF-16BE BOM
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let utf16_slice = &bytes[2..];
+        let mut ascii_buf = [0u8; 2048];
+        let mut count = 0;
+        let mut i = 0;
+        while i + 1 < utf16_slice.len() && count < ascii_buf.len() {
+            let high = utf16_slice[i];
+            let low = utf16_slice[i + 1];
+            if high == 0 {
+                ascii_buf[count] = low;
+                count += 1;
+            } else if high == 0x20 && low == 0xAC {
+                if count + 2 < ascii_buf.len() {
+                    ascii_buf[count] = 0xE2;
+                    ascii_buf[count + 1] = 0x82;
+                    ascii_buf[count + 2] = 0xAC;
+                    count += 3;
+                }
+            } else if high == 0x20 && low == 0xB9 {
+                if count + 2 < ascii_buf.len() {
+                    ascii_buf[count] = 0xE2;
+                    ascii_buf[count + 1] = 0x82;
+                    ascii_buf[count + 2] = 0xB9;
+                    count += 3;
+                }
+            }
+            i += 2;
+        }
+        return detect_currency_slice(&ascii_buf[..count]);
+    }
+
+    let sniff_len = bytes.len().min(8192);
+    detect_currency_slice(&bytes[..sniff_len])
+}
+
+fn detect_currency_slice(slice: &[u8]) -> CurrencySymbol {
+    // 1. INR (₹: UTF-8 [0xE2, 0x82, 0xB9] or text markers)
+    if slice.windows(3).any(|w| w == [0xE2, 0x82, 0xB9])
+        || contains_ignore_case(slice, b"inr")
+        || contains_ignore_case(slice, b"rupee")
+        || contains_ignore_case(slice, b"rs.")
+    {
+        return CurrencySymbol::Inr;
+    }
+
+    // 2. EUR (€: UTF-8 [0xE2, 0x82, 0xAC] or text markers)
+    if slice.windows(3).any(|w| w == [0xE2, 0x82, 0xAC])
+        || contains_ignore_case(slice, b"eur")
+        || contains_ignore_case(slice, b"euro")
+    {
+        return CurrencySymbol::Eur;
+    }
+
+    // 3. JPY (¥: UTF-8 [0xC2, 0xA5] or fullwidth ￥ [0xEF, 0xBF, 0xA5] or text markers)
+    if slice.windows(2).any(|w| w == [0xC2, 0xA5])
+        || slice.windows(3).any(|w| w == [0xEF, 0xBF, 0xA5])
+        || contains_ignore_case(slice, b"jpy")
+        || contains_ignore_case(slice, b"yen")
+    {
+        return CurrencySymbol::Jpy;
+    }
+
+    // 4. GBP (£: UTF-8 [0xC2, 0xA3] or text markers)
+    if slice.windows(2).any(|w| w == [0xC2, 0xA3])
+        || contains_ignore_case(slice, b"gbp")
+        || contains_ignore_case(slice, b"pound")
+    {
+        return CurrencySymbol::Gbp;
+    }
+
+    // 5. USD ($ or text markers)
+    if slice.contains(&b'$') || contains_ignore_case(slice, b"usd") {
+        return CurrencySymbol::Dollar;
+    }
+
+    CurrencySymbol::Unknown
+}
+
+#[inline(always)]
+fn strip_currency_and_spaces<'a>(mut input: &'a [u8]) -> &'a [u8] {
+    loop {
+        let prev_len = input.len();
+        while let Some(&first) = input.first() {
+            if first == b' ' || first == b'\t' || first == b'"' || first == b'\'' {
+                input = &input[1..];
+            } else {
+                break;
+            }
+        }
+        if input.starts_with(b"$") {
+            input = &input[1..];
+        } else if input.starts_with(&[0xC2, 0xA3]) { // £
+            input = &input[2..];
+        } else if input.starts_with(&[0xC2, 0xA5]) { // ¥
+            input = &input[2..];
+        } else if input.starts_with(&[0xE2, 0x82, 0xAC]) { // €
+            input = &input[3..];
+        } else if input.starts_with(&[0xE2, 0x82, 0xB9]) { // ₹
+            input = &input[3..];
+        } else if input.starts_with(&[0xEF, 0xBF, 0xA5]) { // ￥
+            input = &input[3..];
+        }
+
+        if input.len() == prev_len {
+            break;
+        }
+    }
+
+    loop {
+        let prev_len = input.len();
+        while let Some(&last) = input.last() {
+            if last == b' ' || last == b'\t' || last == b'"' || last == b'\'' {
+                input = &input[..input.len() - 1];
+            } else {
+                break;
+            }
+        }
+        if input.ends_with(b"$") {
+            input = &input[..input.len() - 1];
+        } else if input.ends_with(&[0xC2, 0xA3]) { // £
+            input = &input[..input.len() - 2];
+        } else if input.ends_with(&[0xC2, 0xA5]) { // ¥
+            input = &input[..input.len() - 2];
+        } else if input.ends_with(&[0xE2, 0x82, 0xAC]) { // €
+            input = &input[..input.len() - 3];
+        } else if input.ends_with(&[0xE2, 0x82, 0xB9]) { // ₹
+            input = &input[..input.len() - 3];
+        } else if input.ends_with(&[0xEF, 0xBF, 0xA5]) { // ￥
+            input = &input[..input.len() - 3];
+        }
+
+        if input.len() == prev_len {
+            break;
+        }
+    }
+
+    input
+}
+
 /// Parses a localized numeric or currency byte slice into an f64.
-/// Handles: "$1,234.56", "12,50 €", "£120.00", "1 234,56", "24.50", "12", etc.
-/// Zero dynamic allocations.
+/// Handles: "$1,234.56", "₹1,23,456.78", "12,50 €", "£120.00", "¥12,450", "1 234,56", "24.50", "12", etc.
+/// Strict zero dynamic allocations.
 #[inline(always)]
 pub fn parse_localized_number(mut input: &[u8]) -> f64 {
-    // Fast path: strip leading spaces, currency and quotes
-    while let Some(&first) = input.first() {
-        if first == b' ' || first == b'"' || first == b'$' || first == b'\'' {
-            input = &input[1..];
-        } else {
-            break;
-        }
-    }
-    while let Some(&last) = input.last() {
-        if last == b' ' || last == b'"' || last == b'\'' {
-            input = &input[..input.len() - 1];
-        } else {
-            break;
-        }
-    }
+    input = strip_currency_and_spaces(input);
 
     if input.is_empty() {
         return 0.0;
@@ -428,8 +624,8 @@ pub fn parse_localized_number(mut input: &[u8]) -> f64 {
     // Localized fallback path (comma as decimal, thousand separators, currency symbols)
     let mut buf = [0u8; 64];
     let mut len = 0;
-    let mut has_comma = false;
-    let mut has_dot = false;
+    let mut comma_count = 0;
+    let mut dot_count = 0;
     let mut last_comma_idx = 0;
     let mut last_dot_idx = 0;
 
@@ -440,14 +636,14 @@ pub fn parse_localized_number(mut input: &[u8]) -> f64 {
                 len += 1;
             }
         } else if b == b',' {
-            has_comma = true;
+            comma_count += 1;
             last_comma_idx = len;
             if len < buf.len() {
                 buf[len] = b',';
                 len += 1;
             }
         } else if b == b'.' {
-            has_dot = true;
+            dot_count += 1;
             last_dot_idx = len;
             if len < buf.len() {
                 buf[len] = b'.';
@@ -465,11 +661,11 @@ pub fn parse_localized_number(mut input: &[u8]) -> f64 {
 
     let cleaned = &buf[..len];
 
-    let is_comma_decimal = if has_comma && has_dot {
+    let is_comma_decimal = if comma_count > 0 && dot_count > 0 {
         last_comma_idx > last_dot_idx
-    } else if has_comma {
+    } else if comma_count == 1 && dot_count == 0 {
         let digits_after_comma = len - 1 - last_comma_idx;
-        digits_after_comma <= 3
+        digits_after_comma == 1 || digits_after_comma == 2
     } else {
         false
     };
@@ -496,9 +692,52 @@ pub fn parse_localized_number(mut input: &[u8]) -> f64 {
     }
 
     let result = integer_part + fraction_part;
-    if is_negative {
+    let final_val = if is_negative {
         -result
     } else {
         result
+    };
+
+    if final_val.is_finite() {
+        final_val
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_multi_currency_detection() {
+        assert_eq!(detect_currency(b"Search term,Cost,Currency\nfoo,10,EUR"), CurrencySymbol::Eur);
+        assert_eq!(detect_currency("Search term,Cost (€)\nfoo,12.50".as_bytes()), CurrencySymbol::Eur);
+        assert_eq!(detect_currency("Search term,Spend\nfoo,12,50 €".as_bytes()), CurrencySymbol::Eur);
+
+        assert_eq!(detect_currency(b"Search term,Cost,Currency\nfoo,10,INR"), CurrencySymbol::Inr);
+        assert_eq!(detect_currency("Search term,Spend\nfoo,₹1,234.50".as_bytes()), CurrencySymbol::Inr);
+
+        assert_eq!(detect_currency(b"Search term,Cost,Currency\nfoo,10,JPY"), CurrencySymbol::Jpy);
+        assert_eq!(detect_currency("Search term,Spend\nfoo,¥12,450".as_bytes()), CurrencySymbol::Jpy);
+
+        assert_eq!(detect_currency(b"Search term,Cost,Currency\nfoo,10,GBP"), CurrencySymbol::Gbp);
+        assert_eq!(detect_currency("Search term,Spend\nfoo,£120.00".as_bytes()), CurrencySymbol::Gbp);
+
+        assert_eq!(detect_currency("Search term,Spend\nfoo,$50.00".as_bytes()), CurrencySymbol::Dollar);
+        assert_eq!(detect_currency(b"Search term,Cost,Currency\nfoo,10,USD"), CurrencySymbol::Dollar);
+        assert_eq!(detect_currency(b"Just random text"), CurrencySymbol::Unknown);
+    }
+
+    #[test]
+    fn test_localized_multi_currency_parsing() {
+        assert_eq!(parse_localized_number("¥12,450".as_bytes()), 12450.0);
+        assert_eq!(parse_localized_number("¥12450".as_bytes()), 12450.0);
+        assert_eq!(parse_localized_number("12,50 €".as_bytes()), 12.5);
+        assert_eq!(parse_localized_number("€ 1,234.56".as_bytes()), 1234.56);
+        assert_eq!(parse_localized_number("£120.00".as_bytes()), 120.0);
+        assert_eq!(parse_localized_number("₹1,234.56".as_bytes()), 1234.56);
+        assert_eq!(parse_localized_number("$99.95".as_bytes()), 99.95);
+        assert_eq!(parse_localized_number(b""), 0.0);
     }
 }
