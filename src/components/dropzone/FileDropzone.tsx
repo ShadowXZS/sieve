@@ -112,12 +112,27 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             fileInputRef.current?.click();
           }
         }}
-        className={`relative flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 ${
+        className={`relative flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 overflow-hidden group select-none ${
           isDragOver
             ? 'border-emerald-500 bg-emerald-950/20 shadow-lg shadow-emerald-950/40'
             : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700 hover:bg-zinc-900/80'
         }`}
       >
+        {/* Ambient Sieve Brand Logo Watermark */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden select-none">
+          <img
+            src="/sieve.svg"
+            alt=""
+            aria-hidden="true"
+            data-testid="dropzone-watermark"
+            className={`w-64 h-64 object-contain pointer-events-none transition-all duration-300 ease-out select-none ${
+              isDragOver
+                ? 'opacity-25 scale-110 filter drop-shadow-[0_0_30px_rgba(16,185,129,0.35)]'
+                : 'opacity-[0.04] group-hover:opacity-[0.08] scale-100 group-hover:scale-105'
+            }`}
+          />
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -127,38 +142,40 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
           onChange={handleFileInputChange}
         />
 
-        <div className="flex flex-col items-center text-center">
+        <div className="relative z-10 flex flex-col items-center text-center">
           <div
-            className={`p-4 rounded-full mb-3 transition-colors ${
-              isDragOver ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800/80 text-zinc-400'
+            className={`p-4 rounded-full mb-3 transition-all duration-150 ease-out ${
+              isDragOver
+                ? 'bg-emerald-500/20 text-emerald-400 scale-110'
+                : 'bg-zinc-800/80 text-zinc-400 group-hover:text-zinc-200 group-hover:bg-zinc-800'
             }`}
           >
             <UploadCloud className="w-8 h-8" />
           </div>
 
           <h3 className="text-sm font-semibold text-zinc-100 mb-1">
-            Drag & drop search term CSV reports here
+            Drag &amp; drop search term CSV reports here
           </h3>
           <p className="text-xs text-zinc-400 max-w-sm mb-4">
             Supports Google Ads, Amazon PPC, and Microsoft Advertising export formats. Up to 500MB
             processed in background workers.
           </p>
 
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800 text-zinc-300 group-hover:bg-zinc-700 group-hover:text-white transition-all duration-150 ease-out active:scale-95">
             <FileText className="w-3.5 h-3.5" />
             Select CSV Files
           </span>
         </div>
 
         {isIngesting && (
-          <div className="w-full mt-4 max-w-md">
+          <div className="relative z-10 w-full mt-4 max-w-md">
             <div className="flex justify-between text-xs text-zinc-400 mb-1">
               <span>Streaming into WebAssembly Pipeline...</span>
-              <span className="font-mono text-emerald-400">{ingestionProgress}%</span>
+              <span className="font-mono tabular-nums text-emerald-400 font-semibold">{ingestionProgress}%</span>
             </div>
             <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <div
-                className="h-full bg-emerald-500 transition-all duration-200"
+                className="h-full bg-emerald-500 transition-all duration-150 ease-out"
                 style={{ width: `${ingestionProgress}%` }}
               />
             </div>
@@ -167,7 +184,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
       </div>
 
       {errorMessage && (
-        <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs">
+        <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs transition-opacity duration-150">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
           <span>{errorMessage}</span>
         </div>

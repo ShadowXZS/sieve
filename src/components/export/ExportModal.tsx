@@ -22,6 +22,7 @@ import {
   INTENT_PRESETS,
   filterKeywordsByPresets,
 } from '../../presets/dictionaries.ts';
+import { SieveLogo } from '../brand/SieveLogo.tsx';
 import {
   X,
   Copy,
@@ -158,19 +159,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950/60">
-          <div>
-            <h2 id="export-modal-title" className="text-base font-semibold text-zinc-100">
-              Export Negative Keyword Rules
-            </h2>
-            <p className="text-xs text-zinc-400 font-mono mt-0.5">
-              Target {eligibleKeywords.length.toLocaleString()} rules across multi-platform formats
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1.5 shrink-0 shadow-inner">
+              <SieveLogo
+                size="sm"
+                alt="Sieve"
+                data-testid="export-modal-logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div>
+              <h2 id="export-modal-title" className="text-base font-semibold text-zinc-100">
+                Export Negative Keyword Rules
+              </h2>
+              <p className="text-xs text-zinc-400 font-mono tabular-nums mt-0.5">
+                Target {eligibleKeywords.length.toLocaleString()} rules across multi-platform formats
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close export modal"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out active:scale-95"
           >
             <X className="w-5 h-5" />
           </button>
@@ -181,7 +192,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <button
             type="button"
             onClick={() => setSelectedFormat('google_editor')}
-            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out active:scale-[0.98] ${
               selectedFormat === 'google_editor'
                 ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
                 : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
@@ -197,7 +208,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <button
             type="button"
             onClick={() => setSelectedFormat('amazon_csv')}
-            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out active:scale-[0.98] ${
               selectedFormat === 'amazon_csv'
                 ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
                 : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
@@ -213,7 +224,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <button
             type="button"
             onClick={() => setSelectedFormat('google_script')}
-            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out active:scale-[0.98] ${
               selectedFormat === 'google_script'
                 ? 'bg-indigo-500/10 border-indigo-500/40 text-indigo-300'
                 : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
@@ -229,7 +240,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <button
             type="button"
             onClick={() => setSelectedFormat('plain_text')}
-            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out active:scale-[0.98] ${
               selectedFormat === 'plain_text'
                 ? 'bg-zinc-700/60 border-zinc-500 text-zinc-200'
                 : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
@@ -255,7 +266,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   key={preset.id}
                   type="button"
                   onClick={() => togglePreset(preset.id)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors border ${
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 transition-all duration-150 ease-out active:scale-95 border ${
                     isSelected
                       ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
                       : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800 hover:text-zinc-300'
@@ -270,7 +281,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={() => setActivePresets([])}
-              className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono"
+              className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono transition-colors duration-150"
             >
               Clear Presets
             </button>
@@ -281,7 +292,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-2">
           <div className="flex items-center justify-between text-xs text-zinc-400">
             <span>Payload Preview</span>
-            <span className="font-mono text-[11px]">
+            <span className="font-mono tabular-nums text-[11px]">
               {exportPayload.length.toLocaleString()} characters •{' '}
               {exportPayload.split('\n').length.toLocaleString()} lines
             </span>
@@ -303,7 +314,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 shadow-sm shadow-emerald-950/40"
             >
               {isCopied ? (
                 <>
@@ -321,7 +332,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={handleDownload}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-600"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
             >
               <Download className="w-4 h-4" />
               Download File

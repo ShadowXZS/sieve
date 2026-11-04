@@ -1,0 +1,74 @@
+/**
+ * Sieve UI Design Tokens & Theme Specification (Phase 7 - Brand Symmetry)
+ *
+ * Defines uniform standards for:
+ * - Spacing & Bilateral Grids
+ * - 150ms Spring Transitions
+ * - Accessible Focus Rings & Ring-Offsets
+ * - Dark-mode Contrast Surfaces
+ * - Tabular Numerals & Monospace Hierarchy
+ */
+
+:root {
+  /* Surface Color Tokens */
+  --sieve-bg-canvas: #09090b;
+  --sieve-bg-surface: rgba(24, 24, 27, 0.6);
+  --sieve-bg-surface-elevated: rgba(39, 39, 42, 0.8);
+  --sieve-bg-subtle: rgba(18, 18, 20, 0.5);
+
+  /* Border Tokens */
+  --sieve-border-subtle: #27272a;
+  --sieve-border-default: #3f3f46;
+  --sieve-border-focus: #10b981;
+
+  /* Typography */
+  --sieve-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Animation Timings */
+  --sieve-transition-spring: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Tabular Numerals Guarantee across all data values */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: "tnum" 1;
+  font-feature-settings: "tnum" 1;
+}
+
+/* 150ms Spring Transition Utility */
+.transition-spring {
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Standardized Accessible Focus Ring */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+}
+
+/* Bilateral Balanced Column Constraints */
+.bilateral-container {
+  max-width: 80rem; /* max-w-7xl */
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .bilateral-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bilateral-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+

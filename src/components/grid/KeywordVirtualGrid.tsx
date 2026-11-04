@@ -82,10 +82,10 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
               placeholder="Search negative rules..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-1.5 text-xs rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 w-64"
+              className="pl-9 pr-4 py-1.5 text-xs rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:ring-offset-1 focus:ring-offset-zinc-950 transition-all duration-150 ease-out w-64"
             />
           </div>
-          <span className="text-xs text-zinc-400 font-mono">
+          <span className="text-xs text-zinc-400 font-mono tabular-nums">
             {displayedItems.length.toLocaleString()} of {filteredKeywords.length.toLocaleString()}{' '}
             qualifying rules
           </span>
@@ -95,7 +95,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
           <button
             type="button"
             onClick={() => setIsReportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
             <FileText className="w-3.5 h-3.5 text-indigo-400" />
             Generate PDF Report
@@ -104,7 +104,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
           <button
             type="button"
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-all duration-150 ease-out active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 shadow-sm shadow-emerald-950/40"
           >
             <Download className="w-3.5 h-3.5" />
             Export Negative Rules
@@ -162,7 +162,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                       setSelectedKeyword(kw);
                     }
                   }}
-                  className={`grid grid-cols-12 gap-2 items-center px-4 text-xs font-mono transition-colors cursor-pointer border-b border-zinc-800/40 select-text ${
+                  className={`h-12 grid grid-cols-12 gap-2 items-center px-4 text-xs font-mono transition-colors duration-150 ease-out cursor-pointer border-b border-zinc-800/40 select-text outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/70 focus-visible:ring-inset ${
                     isSelected
                       ? 'bg-emerald-950/30 text-emerald-200'
                       : 'hover:bg-zinc-850/60 text-zinc-300'
@@ -182,7 +182,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                       type="button"
                       aria-label="Copy rule"
                       onClick={(e) => handleCopyRule(kw.formattedRule, kw.sha256Hash, e)}
-                      className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors shrink-0"
+                      className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all duration-150 ease-out active:scale-90 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 shrink-0"
                     >
                       {isCopied ? (
                         <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -198,7 +198,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                   {/* Match Type */}
                   <div className="col-span-2">
                     <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${getMatchTypeStyle(
+                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase border transition-colors duration-150 ease-out ${getMatchTypeStyle(
                         kw.matchType
                       )}`}
                     >
@@ -210,17 +210,17 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                   <div className="col-span-2 flex items-center gap-1.5">
                     <div className="w-12 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                       <div
-                        className="h-full bg-indigo-500 rounded-full"
+                        className="h-full bg-indigo-500 rounded-full transition-all duration-150 ease-out"
                         style={{ width: `${Math.round(kw.confidenceScore * 100)}%` }}
                       />
                     </div>
-                    <span className="text-zinc-200 font-mono text-[11px]">
+                    <span className="text-zinc-200 font-mono tabular-nums text-[11px] min-w-10">
                       {(kw.confidenceScore * 100).toFixed(1)}%
                     </span>
                   </div>
 
                   {/* Marginal Waste */}
-                  <div className="col-span-2 font-mono text-rose-400 font-semibold">
+                  <div className="col-span-2 font-mono tabular-nums text-rose-400 font-semibold">
                     ${(kw.marginalWaste || 0).toFixed(2)}
                   </div>
 

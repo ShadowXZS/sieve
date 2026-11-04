@@ -22,7 +22,7 @@ export const CollisionBadge: React.FC<CollisionBadgeProps> = ({ keyword, classNa
     return (
       <span
         data-testid="safe-badge"
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 ${className}`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 transition-colors duration-150 ease-out ${className}`}
       >
         <ShieldCheck className="w-3 h-3 text-emerald-400" />
         Safe
@@ -43,7 +43,7 @@ export const CollisionBadge: React.FC<CollisionBadgeProps> = ({ keyword, classNa
       <button
         type="button"
         data-testid="collision-badge"
-        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/70 text-amber-300 border border-amber-600/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 cursor-help transition-colors hover:bg-amber-900/80 ${className}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/70 text-amber-300 border border-amber-600/60 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 cursor-help transition-all duration-150 ease-out hover:bg-amber-900/80 active:scale-95 ${className}`}
         aria-label="Collision Guard: Exact Match Locked"
       >
         <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -53,7 +53,7 @@ export const CollisionBadge: React.FC<CollisionBadgeProps> = ({ keyword, classNa
       {showTooltip && (
         <div
           role="tooltip"
-          className="absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 text-xs rounded-lg shadow-xl bg-zinc-900 text-zinc-100 border border-zinc-700/80 pointer-events-none transition-all duration-150 backdrop-blur-md"
+          className="absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 text-xs rounded-lg shadow-xl bg-zinc-900 text-zinc-100 border border-zinc-700/80 pointer-events-none transition-all duration-150 ease-out backdrop-blur-md"
         >
           <div className="font-semibold text-amber-400 mb-1 flex items-center gap-1">
             <ShieldAlert className="w-3.5 h-3.5" />

@@ -22,6 +22,7 @@ import { calculateReallocationModel } from '../../reports/reallocation.ts';
 import { AuditOnePager } from '../../reports/pdf/AuditOnePager.tsx';
 import { ForensicDeck } from '../../reports/pdf/ForensicDeck.tsx';
 import { generatePdfBlob, downloadPdfBlob } from '../../reports/pdf/renderer.ts';
+import { SieveLogo } from '../brand/SieveLogo.tsx';
 
 export type ReportType = 'one_pager' | 'forensic_deck';
 
@@ -159,21 +160,30 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950/60">
-          <div>
-            <h2 id="report-modal-title" className="text-base font-semibold text-zinc-100 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              Generate Vector Audit Report
-            </h2>
-            <p className="text-xs text-zinc-400 font-mono mt-0.5">
-              Zero-Server • 100% Client-Side In-Memory PDF Compilation
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1.5 shrink-0 shadow-inner">
+              <SieveLogo
+                size="sm"
+                alt="Sieve"
+                data-testid="report-modal-logo"
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <div>
+              <h2 id="report-modal-title" className="text-base font-semibold text-zinc-100 flex items-center gap-2">
+                Generate Vector Audit Report
+              </h2>
+              <p className="text-xs text-zinc-400 font-mono mt-0.5">
+                Zero-Server • 100% Client-Side In-Memory PDF Compilation
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isGenerating}
             aria-label="Close report modal"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 transition-all duration-150 ease-out disabled:opacity-50 active:scale-95"
           >
             <X className="w-5 h-5" />
           </button>
@@ -295,19 +305,19 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
             <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-800/80">
               <div className="p-2 bg-zinc-900/60 rounded border border-zinc-800">
                 <div className="text-[10px] text-zinc-400 uppercase font-mono">Waste Recovered</div>
-                <div className="text-sm font-semibold text-emerald-400 mt-0.5 font-mono">
+                <div className="text-sm font-semibold text-emerald-400 mt-0.5 font-mono tabular-nums">
                   ${(kpi.totalWaste || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </div>
               </div>
               <div className="p-2 bg-zinc-900/60 rounded border border-zinc-800">
                 <div className="text-[10px] text-zinc-400 uppercase font-mono">Projected Conv. Lift</div>
-                <div className="text-sm font-semibold text-indigo-400 mt-0.5 font-mono">
+                <div className="text-sm font-semibold text-indigo-400 mt-0.5 font-mono tabular-nums">
                   +{Math.round(reallocation.conversionLiftPercent * 10) / 10}%
                 </div>
               </div>
               <div className="p-2 bg-zinc-900/60 rounded border border-zinc-800">
                 <div className="text-[10px] text-zinc-400 uppercase font-mono">Efficiency Multiplier</div>
-                <div className="text-sm font-semibold text-amber-400 mt-0.5 font-mono">
+                <div className="text-sm font-semibold text-amber-400 mt-0.5 font-mono tabular-nums">
                   {Math.round(reallocation.efficiencyMultiplier * 100) / 100}x
                 </div>
               </div>
@@ -348,7 +358,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isGenerating}
-              className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all duration-150 ease-out active:scale-95 disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
             >
               Cancel
             </button>
@@ -357,7 +367,7 @@ export const ReportConfigModal: React.FC<ReportConfigModalProps> = ({
               type="button"
               onClick={handleGenerate}
               disabled={isGenerating || isSuccess}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 shadow-md shadow-emerald-950/30"
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-all duration-150 ease-out active:scale-[0.98] disabled:opacity-50 shadow-md shadow-emerald-950/30 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
             >
               {isGenerating ? (
                 <>

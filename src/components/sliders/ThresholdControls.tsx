@@ -77,7 +77,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
 
   return (
     <div
-      className={`p-5 rounded-xl bg-zinc-900/70 border border-zinc-800 shadow-lg backdrop-blur-md ${className}`}
+      className={`p-5 rounded-xl bg-zinc-900/70 border border-zinc-800 shadow-lg backdrop-blur-md transition-all duration-150 ease-out ${className}`}
     >
       <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
         <div className="flex items-center gap-2">
@@ -91,14 +91,15 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             </p>
           </div>
         </div>
-        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+        <span className="text-[11px] font-mono tabular-nums px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700/60">
           60/120 FPS Validated
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Balanced Two-Column Surface Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Confidence Threshold */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label
               htmlFor="confidence-slider"
@@ -107,7 +108,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <Percent className="w-3.5 h-3.5 text-indigo-400" />
               <span>Confidence Threshold</span>
             </label>
-            <span className="font-mono text-indigo-400 font-semibold">
+            <span className="font-mono tabular-nums text-indigo-400 font-semibold min-w-10 text-right">
               {Math.round(thresholds.confidenceScore * 100)}%
             </span>
           </div>
@@ -120,16 +121,16 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             step="0.01"
             value={thresholds.confidenceScore}
             onChange={handleConfidenceChange}
-            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
-          <div className="flex justify-between text-[10px] text-zinc-500">
+          <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
             <span>50% (Exploratory)</span>
             <span>99% (Strict)</span>
           </div>
         </div>
 
         {/* Max Marginal Waste */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label
               htmlFor="waste-slider"
@@ -138,7 +139,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <DollarSign className="w-3.5 h-3.5 text-rose-400" />
               <span>Max Marginal Waste</span>
             </label>
-            <span className="font-mono text-rose-400 font-semibold">
+            <span className="font-mono tabular-nums text-rose-400 font-semibold min-w-16 text-right">
               ${thresholds.maxMarginalWaste.toLocaleString()}
             </span>
           </div>
@@ -151,16 +152,16 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             step="50"
             value={thresholds.maxMarginalWaste}
             onChange={handleWasteChange}
-            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-rose-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-rose-500 outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
-          <div className="flex justify-between text-[10px] text-zinc-500">
+          <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
             <span>$50</span>
             <span>$10,000</span>
           </div>
         </div>
 
         {/* Target CPA */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label
               htmlFor="cpa-slider"
@@ -169,7 +170,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <Target className="w-3.5 h-3.5 text-emerald-400" />
               <span>Target Account CPA</span>
             </label>
-            <span className="font-mono text-emerald-400 font-semibold">
+            <span className="font-mono tabular-nums text-emerald-400 font-semibold min-w-10 text-right">
               ${thresholds.targetCPA}
             </span>
           </div>
@@ -182,16 +183,16 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             step="5"
             value={thresholds.targetCPA}
             onChange={handleTargetCPAChange}
-            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
-          <div className="flex justify-between text-[10px] text-zinc-500">
+          <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
             <span>$10</span>
             <span>$300</span>
           </div>
         </div>
 
         {/* Minimum Click Trials */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label
               htmlFor="clicks-slider"
@@ -200,7 +201,7 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
               <MousePointerClick className="w-3.5 h-3.5 text-amber-400" />
               <span>Min Non-Converting Clicks</span>
             </label>
-            <span className="font-mono text-amber-400 font-semibold">
+            <span className="font-mono tabular-nums text-amber-400 font-semibold min-w-16 text-right">
               {thresholds.minClicks} clicks
             </span>
           </div>
@@ -213,9 +214,9 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({
             step="1"
             value={thresholds.minClicks}
             onChange={handleMinClicksChange}
-            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500 outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 transition-all duration-150 ease-out"
           />
-          <div className="flex justify-between text-[10px] text-zinc-500">
+          <div className="flex justify-between text-[10px] text-zinc-500 font-mono tabular-nums">
             <span>1</span>
             <span>50</span>
           </div>
