@@ -1,4 +1,3 @@
-
 **Website:** : https://sieveql.vercel.app/
 
 ---
@@ -21,12 +20,17 @@ Sieve started during an intense, grueling 16-hour sprint. My original plan was s
 
 Early on, I ran headfirst into the friction of international merchant verification and cross-border payment compliance. While later research revealed viable merchant-of-record alternatives catering to builders in India (such as **Dodo Payments**), stepping back to evaluate the finished product shifted my perspective entirely:
 
-1. **Product Maturity & Polish:** Looking critically at elements like the vector PDF exports and overall UX, I felt the tool—while fast and functionally complete—wasn't at the uncompromising commercial polish level I’d demand of a paid enterprise SaaS.
-2. **The "Vibe Coding" Realization:** The entire architecture was brought to life via prompt engineering and "vibe coding." After 16 straight hours, I realized that moving code blocks from prompt to editor hadn't taught me deep, fundamental software engineering—it taught me how to orchestrate AI output at high speed.
+I didn’t write every line of this codebase by hand. I orchestrated AI at high velocity—crafting structured meta-prompts, debugging in real time, and steering the compiler. But when the first build was done, I hit a critical reality check: orchestrating AI output fast is not the same as mastering software engineering.
 
-Charging for something built this way felt premature. My actual goal is to truly learn software engineering, understand architectural depth from first principles, and tackle serious technical challenges.
+At first, I thought the project was finished simply because all the features worked. I actually hesitated to touch it, terrified that an AI hallucination would shatter a working application. Then the realization sank in:**if you are afraid to modify or refactor a working system, you haven't mastered it yet.**
 
-Until then, I'm using the superpower of fast AI orchestration to build, experiment, and ship functional tools directly to the community for free. **Enjoy the free software—more open tools are on the way.**
+To break through that plateau, I forced myself to tear into the architecture and rebuild it from first principles. In this latest iteration, we eliminated technical debt, locked down strict domain boundaries, tuned the UI for a consistent 60–120 FPS, and overhauled the vector PDF engine to stamp out layout clipping and unformatted math.
+
+Charging for a tool built purely on prompt-driven momentum felt premature. My genuine goal is to learn deep systems engineering, understand memory lifecycles, and build high-performance software that stands on its own architectural merit.
+
+That is why Sieve is completely open, unmonetized, and free.
+
+*That said—if this tool saves your agency real money and you actually **want** to pay me, let’s talk. Tell me what feature or integration your workflow is missing, name the price you're willing to pay for it, and I’ll build it.*
 
 If Sieve saves your ad spend, a **Star ⭐️ on GitHub** is the best currency to support the journey.
 
