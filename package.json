@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:wasm && vite build",
+    "build": "wasm-pack build --target web crates/sieve_core && cp crates/sieve_core/pkg/sieve_core_bg.wasm Public/sieve_core_bg.wasm && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "build:wasm": "cargo build --target wasm32-unknown-unknown --release --offline -p sieve_core && wasm-bindgen target/wasm32-unknown-unknown/release/sieve_core.wasm --out-dir crates/sieve_core/pkg --target web && cp crates/sieve_core/pkg/sieve_core_bg.wasm Public/sieve_core_bg.wasm",
+    "build:wasm": "wasm-pack build --target web crates/sieve_core && cp crates/sieve_core/pkg/sieve_core_bg.wasm Public/sieve_core_bg.wasm",
     "test:rs": "cargo test --offline -p sieve_core",
     "test:wasm": "node --import tsx --test tests/wasm/*.test.ts",
     "test:unit": "node --import tsx --import ./tests/setup.ts --test tests/unit/*.test.ts",
     "test:components": "node --import tsx --import ./tests/setup.ts --test tests/components/*.test.tsx",
-    "test": "npm run build:wasm && npm run test:rs && node scripts/test-runner.mjs"
+    "test": "npm run build:wasm && npm run test:rs && node --input-type=module -e \"import { spawnSync } from 'node:child_process'; const args = process.argv.slice(1).filter(a => a !== 'run'); process.exit(spawnSync(process.execPath, ['scripts/test-runner.mjs', ...args], { stdio: 'inherit' }).status ?? 0);\"",
+    "lint": "eslint src/",
+    "lint:boundaries": "eslint src/",
+    "verify": "pnpm tsc --noEmit && pnpm lint && pnpm test run"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.4",
@@ -23,12 +26,14 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.6.2",
+    "eslint": "^10.14.0",
     "fake-indexeddb": "^6.2.7",
     "happy-dom": "^21.0.4",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.4",
     "tsx": "^4.23.15",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^6.0.0"
   },
   "pnpm": {

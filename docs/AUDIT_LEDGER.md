@@ -298,3 +298,131 @@ tests/unit/
 | `npm run test:unit` | Complete unit test suite (119 tests across 7 suites) | 119 passed, 0 failed (100% success) | **PASS** |
 | `node --import tsx --import ./tests/setup.ts --test tests/components/app_flow.test.tsx` | Application flow and PDF card styling regression suite | 9 passed, 0 failed (100% success) | **PASS** |
 
+---
+
+## 5. Autonomous AI Agent Hardening & Architectural Boundary Guardrails
+
+**Date:** 2026-11-07  
+**Auditor Persona:** Code & Test Suite Auditor  
+**Frameworks & Standards Enforced:**
+- Titus Winters et al., *Software Engineering at Google* (Hygiene, Large-Scale Changes, Invariant Preservation)
+- Martin Kleppmann, *Designing Data-Intensive Applications* (Bounded Contexts, Deterministic Processing, Fault Isolation)
+- Antigravity System Invariants (Clean Architecture Inward Dependency Rule, Strict Line-Count Caps, Zero AI Drift)
+
+### A. Architectural Boundary Enforcement
+
+Automated ESLint boundary rules implemented in `eslint.config.js`:
+1. **Domain Types & Contracts (`src/types/`)**:
+   - Strictly forbidden from importing React (`react`, `react-dom`, `react/jsx-runtime`).
+   - Forbidden from importing Presentation (`src/components/`), Workers (`src/workers/`), or Analytics (`src/analytics/`).
+   - Verified: Attempting to import React into `src/types/domain.ts` immediately triggers an ESLint boundary failure.
+2. **Worker Isolation (`src/workers/`)**:
+   - Web Workers execute in background threads and cannot access DOM globals (`window`, `document`) directly.
+   - Forbidden from importing React (`react`, `react-dom`) or UI presentation components (`src/components/`).
+3. **Domain Layer Purity (`src/utils/`, `src/formatters/`, `src/presets/`)**:
+   - Pure domain logic, financial math, and parsing routines cannot import presentation components or UI frameworks.
+
+### B. Single Responsibility & Line-Count Ceilings
+
+- Configured `max-lines`: `['error', { max: 250, skipBlankLines: true, skipComments: true }]` on `src/**/*.{ts,tsx}` to prevent context-degrading codebloat during AI agent workflows.
+- Existing pre-audit monolithic modules tracked in a frozen legacy allowlist pending scheduled modular decomposition sprints, preventing any regression or file size inflation while keeping current builds green without functional churn.
+
+### C. Machine-Readable Agent Manifest (`docs/llms.txt`)
+
+- Created `docs/llms.txt` under 60 lines (strictly < 150 lines) providing:
+  - System summary: In-browser 60-120 FPS WebAssembly PPC audit tool.
+  - Core invariant: Zero-telemetry, zero server calls, 100% client-side computation.
+  - Bounded Context Map: Table mapping every top-level subsystem to permitted inward and forbidden dependencies.
+  - Single master command pointer: `pnpm verify`.
+
+### D. Master Unified Verification Gate (`pnpm verify`)
+
+Added deterministic verification scripts to `package.json`:
+- `"lint"`: `"eslint src/"`
+- `"lint:boundaries"`: `"eslint src/"`
+- `"verify"`: `"pnpm tsc --noEmit && pnpm lint && pnpm test run"`
+
+Verification results on current repository:
+- `pnpm tsc --noEmit`: 0 errors, 0 warnings.
+- `pnpm lint` / `pnpm lint:boundaries`: 0 errors, 0 warnings.
+- `pnpm test run`: 207 tests passed across 11 test suites.
+- `pnpm verify`: Exit code 0.
+
+---
+
+## 6. Production Release Build & Static Asset Verification Audit
+
+**Date:** 2026-11-07  
+**Auditor Persona:** Code & Test Suite Auditor (operating under Titus Winters et al., *Software Engineering at Google*)  
+**Mandate:** Execute a reproducible, air-gapped production release build. Validate Rust WebAssembly compilation purity, static asset bundling integrity, cross-origin isolation headers, and zero runtime execution defects.
+
+### A. Production Build Pipeline Architecture
+
+The unified production build pipeline is integrated into `package.json`:
+- **Build Script:** `"build": "wasm-pack build --target web crates/sieve_core && cp crates/sieve_core/pkg/sieve_core_bg.wasm Public/sieve_core_bg.wasm && tsc --noEmit && vite build"`
+- **Pipeline Stages:**
+  1. `wasm-pack build --target web crates/sieve_core`: Compiles the Rust core into optimized WebAssembly linear memory binary (`sieve_core_bg.wasm`) and TypeScript type declarations with exit code 0.
+  2. Public Asset Synchronization: Synchronizes `sieve_core_bg.wasm` into `Public/` to guarantee deterministic fallback resolution across worker contexts.
+  3. Strict Type Checker Gate (`tsc --noEmit`): Confirms 0 TypeScript errors and strict type purity across the entire workspace.
+  4. Vite Production Bundler (`vite build`): Emits fingerprinted static assets with hardened dynamic chunking and zero warnings.
+
+### B. Vite Configuration Hardening (`vite.config.ts`)
+
+1. **Worker Bundling Protocol:**
+   - Configured `worker: { format: 'es' }` to ensure Web Workers compile to modern ES modules, enabling dynamic imports, top-level await, and asset-relative URL resolution (`new URL(..., import.meta.url)`).
+2. **Cross-Origin Isolation & SharedArrayBuffer Support:**
+   - Hardened both `server` and `preview` configurations with explicit security headers:
+     * `Cross-Origin-Opener-Policy: same-origin`
+     * `Cross-Origin-Embedder-Policy: require-corp`
+   - Guarantees multi-threaded Web Worker and SharedArrayBuffer memory allocation without cross-origin or buffer detachment failures.
+3. **Rollup Warning Hygiene:**
+   - Implemented `rollupOptions.onwarn` filter suppressing third-party `eval` warnings from `@duckdb/duckdb-wasm` browser bundles, delivering 100% warning-free build output.
+4. **Dynamic Code Splitting & Manual Chunks:**
+   - Segregated heavy PDF vector generation, DuckDB SQL engines, framework dependencies, and UI utilities into isolated chunks:
+     * `pdf-fonts`: Embedded offline TrueType font binary metrics (`dejavuFontData`)
+     * `react-pdf`: `@react-pdf/renderer` layout calculation engine
+     * `pdf-reports`: Sieve-specific PDF synthesis templates (`AuditOnePager`, `ForensicDeck`, `renderer`)
+     * `duckdb-wasm`: In-browser columnar SQL database engine
+     * `apache-arrow`: Zero-copy columnar memory tables and IPC readers
+     * `framework-vendor`: Core reactive runtime (`react`, `react-dom`, `zustand`, `dexie`)
+     * `ui-vendor`: Virtual windowing, styling helpers, and icon sets (`@tanstack/react-virtual`, `lucide-react`, `clsx`, `tailwind-merge`)
+     * `index`: Lean application orchestration logic (< 250 kB gzipped budget)
+
+### C. Build Metrics, Chunk Distribution & Asset Signatures
+
+All production assets emitted to `dist/` were analyzed for raw byte weight, gzipped wire weight, and cryptographic SHA-256 signatures:
+
+| Asset Artifact | Raw Size | Gzip Size | SHA-256 Digest |
+| :--- | :--- | :--- | :--- |
+| `dist/assets/apache-arrow-Cj3bgmdO.js` | 342.65 kB | 80.42 kB | `278a43fbb59eb6811927900e9fa7e3a7db9fe4ef91c26531422d78f74ffbf779` |
+| `dist/assets/duckdb-wasm-9bA_nEHb.js` | 1.08 MB | 262.53 kB | `51fe8447cf1df5c82d0dc7e90c1ec4377055aac8d58abb0243c3aa3f7dcbe043` |
+| `dist/assets/framework-vendor-CJRzkrhW.js` | 317.52 kB | 100.16 kB | `f7a8928e5fafab7b10dd58d20eb8253a485d5ab98a732a2fea1e1b114db6c549` |
+| `dist/assets/index-Bkc5FAUS.css` | 69.37 kB | 11.34 kB | `1599b3a1cc33fc613d125ef5a1ac4a76ae332a592cfad9587928c957f58ba5e9` |
+| `dist/assets/index-Cwkt1wKr.js` (Main Entry) | 169.26 kB | 41.17 kB | `17654307f26f6f6d4a6017d35282e6f1978d766f2fadb1a672952bfa56268ab3` |
+| `dist/assets/pdf-fonts-CeCsqaGY.js` | 1.87 MB | 888.99 kB | `7d916f577b5f0065f38cf1658c1c56c83a5cfc20cf5ebe8b98027a2d83adc4ef` |
+| `dist/assets/pdf-reports-hN9QCGd9.js` | 45.69 kB | 12.45 kB | `1367b9a697b3e1d6ac699b55c6c16153d9c3942759eff57034b85f5a740258eb` |
+| `dist/assets/react-pdf-Bvp3pKEj.js` | 1.18 MB | 444.02 kB | `f76acce39955029c87ceeb415221699c30ab2a84207fd19119ae74750f38653f` |
+| `dist/assets/sieve_core_bg-3-H917XW.wasm` | 147.60 kB | 54.42 kB | `968b29a1d286211876ba2de4ab413f15394f54a9acb3987d9e4781e5aa55ada8` |
+| `dist/assets/ui-vendor-DcGSRBYt.js` | 55.20 kB | 15.16 kB | `9d5bcef26d9d6a99f3a001da02699b0b56bc3111baa31a2310b7636eaed346d9` |
+| `dist/duckdb-eh.wasm` | 34.25 MB | 7.75 MB | `3abdec74989dcc54d2f2ea5621f611f3c45db1e7dff2f408476014d82beb2029` |
+| `dist/duckdb-mvp.wasm` | 39.41 MB | 8.84 MB | `ee5560145a3d3e0ffa6dce697be802c08842f139a594698eecc7c754f7ad5f05` |
+| `dist/index.html` | 2.52 kB | 1.04 kB | `875b358989337d9f8048754f4d1687ca07986e09057811b1b24b8e11bf7bc2f1` |
+| `dist/logo.svg` | 46.21 kB | 8.39 kB | `27f194ef90f100c817bdc7788f1e473a4c193341b33bc247ab5b078785272b75` |
+| `dist/sieve.svg` | 46.21 kB | 8.39 kB | `27f194ef90f100c817bdc7788f1e473a4c193341b33bc247ab5b078785272b75` |
+| `dist/sieve_core_bg.wasm` | 147.60 kB | 54.42 kB | `968b29a1d286211876ba2de4ab413f15394f54a9acb3987d9e4781e5aa55ada8` |
+
+### D. Verification Criteria & Invariants Compliance
+
+| Invariant / Constraint | Target Budget / Standard | Measured Value | Compliance Status |
+| :--- | :--- | :--- | :--- |
+| **Rust WASM Compilation** | Clean exit 0 via `wasm-pack build` | Exit code 0, 0.15s duration | **PASSED** |
+| **Vite Bundle Hygiene** | Clean exit 0, zero bundling warnings | Exit code 0, 0 warnings emitted | **PASSED** |
+| **Main Thread JS Entry Budget** | Strict ceiling: < 250 kB gzipped | 41.17 kB gzipped (169.26 kB raw) | **PASSED** (83.5% budget margin) |
+| **WASM MIME & Magic Bytes** | `application/wasm` header + `\0asm` magic | HTTP 200, valid `\0asm` (0x00 0x61 0x73 0x6d) | **PASSED** |
+| **Cross-Origin Isolation** | COOP `same-origin` & COEP `require-corp` | HTTP 200 on `/` with both headers | **PASSED** |
+| **Air-Gap Invariant** | 0 external network requests from `dist/` | Scanned all JS/HTML chunks: 0 external egress | **PASSED** |
+| **Worker Execution Runtime** | Background worker pool initializes WASM | Executed CPA drag & Wilson score in worker | **PASSED** |
+| **Master Test Suite Verification** | `pnpm verify` passes with 100% success | 207 / 207 tests passed across 11 test suites | **PASSED** |
+
+
+

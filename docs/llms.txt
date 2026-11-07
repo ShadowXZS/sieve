@@ -1,0 +1,39 @@
+# SIEVE SYSTEM MANIFEST & BOUNDED CONTEXT INDEX
+
+> Machine-readable topology and architectural invariants for autonomous AI agents.
+
+## 1. System Summary
+- **Architecture**: In-browser 60-120 FPS WebAssembly PPC audit tool.
+- **Core Engine**: Rust WebAssembly (`crates/sieve_core`) compiled to linear memory + Apache Arrow IPC + DuckDB-Wasm.
+- **Client Runtime**: React 19 + TypeScript + Zustand + Tailwind CSS + Dexie (IndexedDB).
+- **Core Invariant**: Zero-telemetry, zero server calls. 100% client-side computation. All heavy processing offloaded to Web Workers.
+
+## 2. Verification Protocol
+- **Master Verification Gate**: `pnpm verify`
+- **Constituent Checks**:
+  1. `pnpm tsc --noEmit` (Strict TypeScript purity, zero errors)
+  2. `pnpm lint` (Boundary restrictions, forbidden imports, file length caps)
+  3. `pnpm test run` (WASM regression, unit math suites, component AAA tests, e2e contracts)
+- **Failure Condition**: Any type violation, boundary breach, file > 250 LOC, or failing assertion terminates with non-zero exit code.
+
+## 3. Bounded Context Map & Import Boundaries
+
+| Bounded Context | Path | Allowed Inward Dependencies | Forbidden Dependencies | Responsibilities |
+|---|---|---|---|---|
+| Domain Types & Contracts | `src/types/` | None (pure TypeScript definitions) | `src/components/`, `src/workers/`, `src/analytics/`, `react`, DOM APIs | Canonical data contracts, schema types, protocol interfaces. |
+| WebAssembly Core | `crates/sieve_core/` | Rust standard library, internal crates | External network, system I/O, Web APIs | High-throughput parsing, string distance, Bayesian stats, CPA drag. |
+| Background Compute | `src/workers/` | `crates/sieve_core/pkg`, `src/types/`, `src/utils/` | `window`, `document`, DOM, React (`react`, `react-dom`), UI components | Parallelized CSV chunk parsing, token clustering, Arrow serialization. |
+| Analytical Infrastructure | `src/analytics/` | `@duckdb/duckdb-wasm`, `apache-arrow`, `src/types/` | `src/components/`, React UI, DOM manipulation | In-browser SQL engine, Arrow IPC zero-copy data bridges. |
+| Presentation Layer | `src/components/` | `src/state/`, `src/types/`, `src/utils/`, `src/formatters/`, React | Concrete network drivers, Node.js APIs, direct worker internals | Accessible UI widgets, KPI dashboards, virtual grid, drawer overlays. |
+| Global Application State | `src/state/` | `zustand`, `src/types/`, `src/utils/`, `src/storage/` | UI components, React DOM nodes, direct DOM events | Centralized reactive store (`useSieveStore`), action dispatches. |
+| Security & Privacy | `src/crypto/` | Web Crypto API, `src/types/`, `src/utils/` | External analytics SDKs, tracking pixels, UI components | Client-side PII scrubbing, SHA-256 air-gap attestation, vault backup. |
+| Local Persistence | `src/storage/` | `dexie`, `src/types/` | UI components, external storage drivers | Client-side IndexedDB persistence for audits and historical runs. |
+| Pure Utilities & Math | `src/utils/` | Native JavaScript/TypeScript math, `src/types/` | UI components, React, DOM globals | Financial formulas, currency math, CSV preamble parsers. |
+| Vector PDF Synthesis | `src/reports/` | `@react-pdf/renderer`, `src/types/`, `src/utils/` | Direct browser DOM, server-side PDF utilities | Client-side vector PDF generation (`AuditOnePager`, `ForensicDeck`). |
+
+## 4. Architectural Rules for Autonomous Agents
+1. **Unidirectional Dependency Flow**: Presentation -> Application -> Domain -> Infrastructure. Inner layers never import outer layers.
+2. **File Size Ceiling**: Maximum 250 lines of code per file (excluding blanks and comments) enforced by `max-lines`. Decompose files approaching 200 LOC.
+3. **Immutability of Contracts**: Files in `src/types/` are canonical and read-only during functional and UI audit phases.
+4. **Air-Gap Invariant**: 0 bytes external egress. No `fetch`, `XMLHttpRequest`, `navigator.sendBeacon`, or external CDN imports.
+5. **Worker Isolation**: Web Workers operate exclusively via transferable ArrayBuffers and serializable messages. Never reference `window` or `document`.
