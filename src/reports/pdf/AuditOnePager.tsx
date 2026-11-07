@@ -6,13 +6,10 @@
  *
  * Features:
  * - 100% Client-Side Vector Synthesis with Zero Network Calls.
- * - Live synchronization with Executive Dashboard 4-tier semantic sections:
- *   1. Identified Waste Bleed (Rose)
- *   2. Safe-List Protected (Emerald)
- *   3. High-Risk Clicks (Amber)
- *   4. Reallocation Yield (Indigo)
+ * - Live synchronization with Executive Dashboard 4-tier semantic sections.
+ * - Dynamic big number font-size scaling eliminating metric clipping.
+ * - Mathematical reallocation model callout box with distinct formula elements.
  * - Complete UTF-8 glyph embedding for multi-currency symbols: $, ₹, €, ¥, £.
- * - Deterministic capital reallocation matrix and top exclusion targets table.
  */
 
 import React from 'react';
@@ -30,7 +27,10 @@ import { computeExecutiveAnalytics, type ExecutiveAnalytics } from '../../utils/
 import { registerPdfFonts } from './fonts/index.ts';
 import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from './styles.ts';
 import { scrubKeywordList, scrubPiiText } from '../../crypto/pii_scrubber.ts';
-import { formatConversionCount } from '../../components/pdf/ExecutiveReportPdf.tsx';
+import { MetricCardsGrid } from './components/MetricCardsGrid.tsx';
+import { FormulaCallout } from './components/FormulaCallout.tsx';
+import { TopExclusionsTable } from './components/TableComponents.tsx';
+import { PdfFooter } from './components/PdfFooter.tsx';
 
 // Ensure offline UTF-8 TrueType fonts are registered
 registerPdfFonts();
@@ -62,7 +62,6 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
   analytics,
   thresholds,
   redactPii = true,
-  zeroLeakAttestationHash,
 }) => {
   const activeCurrency: SupportedCurrency = normalizeCurrencySymbol(currencySymbol);
 
@@ -93,12 +92,10 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
       ? 0.0
       : Math.min(100.0, Math.max(0.0, Math.round((waste / spend) * 1000) / 10));
 
-  const topList = effectiveTopKeywords.slice(0, 6);
-
   return (
     <Document title={`${effectiveOrgTitle} - Executive Audit`} author="Sieve Zero-Server Core">
       <Page size="A4" style={styles.page}>
-        {/* Header */}
+        {/* Document Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>{effectiveOrgTitle}</Text>
@@ -115,131 +112,20 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
         </View>
 
         {/* Live Executive Dashboard Sync: 4 Color-Coded Semantic Sections */}
-        <View style={styles.gridCards}>
-          {/* Tier 1: Rose/Red - Identified Waste Bleed */}
-          <View
-            style={[
-              styles.card,
-              {
-                borderTopWidth: 2.5,
-                borderTopColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.border,
-                backgroundColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.bg,
-              },
-            ]}
-          >
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }]}>
-                Identified Waste
-              </Text>
-              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.badgeBg }]}>
-                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }}>
-                  {wastePercentage.toFixed(1)}%
-                </Text>
-              </View>
-            </View>
-            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.dark }]}>
-              {execAnalytics.wasteBleed.formatted}
-            </Text>
-            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.primary }]}>
-              CPA Drag: +{execAnalytics.wasteBleed.formattedCpaDrag}
-            </Text>
-            <Text style={styles.cardCaption}>
-              {execAnalytics.wasteBleed.candidateCount.toLocaleString()} non-converting tokens
-            </Text>
-          </View>
+        <MetricCardsGrid
+          analytics={execAnalytics}
+          reallocation={reallocation}
+          wastePercentage={wastePercentage}
+        />
 
-          {/* Tier 2: Emerald/Green - Safe-List Protected */}
-          <View
-            style={[
-              styles.card,
-              {
-                borderTopWidth: 2.5,
-                borderTopColor: EXECUTIVE_COLOR_TOKENS.safeList.border,
-                backgroundColor: EXECUTIVE_COLOR_TOKENS.safeList.bg,
-              },
-            ]}
-          >
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.safeList.text }]}>
-                Safe-List Protected
-              </Text>
-              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.safeList.badgeBg }]}>
-                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.safeList.dark }}>Secured</Text>
-              </View>
-            </View>
-            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.safeList.dark }]}>
-              {execAnalytics.safeListProtection.protectedConversions.toLocaleString()} Conv.
-            </Text>
-            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
-              Secured: {execAnalytics.safeListProtection.formattedSecuredRevenue}
-            </Text>
-            <Text style={styles.cardCaption}>
-              {execAnalytics.safeListProtection.exactLockedCount} exact locks shielding conversions
-            </Text>
-          </View>
+        {/* Styled Reallocation Equation Callout Box */}
+        <FormulaCallout
+          reallocation={reallocation}
+          analytics={execAnalytics}
+          currency={activeCurrency}
+        />
 
-          {/* Tier 3: Amber/Orange - High-Risk Clicks */}
-          <View
-            style={[
-              styles.card,
-              {
-                borderTopWidth: 2.5,
-                borderTopColor: EXECUTIVE_COLOR_TOKENS.highRisk.border,
-                backgroundColor: EXECUTIVE_COLOR_TOKENS.highRisk.bg,
-              },
-            ]}
-          >
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.highRisk.text }]}>
-                High-Risk Clicks
-              </Text>
-              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.highRisk.badgeBg }]}>
-                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }}>Elasticity</Text>
-              </View>
-            </View>
-            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }]}>
-              {execAnalytics.exploratoryRisk.highRiskClicks.toLocaleString()} Clicks
-            </Text>
-            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.highRisk.primary }]}>
-              Ceiling: {execAnalytics.exploratoryRisk.formattedOptimalBidCeiling}
-            </Text>
-            <Text style={styles.cardCaption}>
-              Δ: {execAnalytics.exploratoryRisk.formattedBoundaryDelta} boundary spread
-            </Text>
-          </View>
-
-          {/* Tier 4: Indigo/Slate - Reallocation Yield */}
-          <View
-            style={[
-              styles.card,
-              {
-                borderTopWidth: 2.5,
-                borderTopColor: EXECUTIVE_COLOR_TOKENS.reallocation.border,
-                backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.bg,
-              },
-            ]}
-          >
-            <View style={styles.cardHeaderRow}>
-              <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.reallocation.text }]}>
-                REALLOCATION YIELD
-              </Text>
-              <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.badgeBg }]}>
-                <Text style={{ color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }}>Efficiency</Text>
-              </View>
-            </View>
-            <Text style={[styles.cardValue, { color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }]}>
-              +{formatConversionCount(execAnalytics.reallocationYield.incrementalConversions)} Conv.
-            </Text>
-            <Text style={[styles.cardSub, { color: EXECUTIVE_COLOR_TOKENS.reallocation.primary }]}>
-              Annual: {execAnalytics.reallocationYield.formattedAnnualizedRecovery}
-            </Text>
-            <Text style={styles.cardCaption}>
-              +{execAnalytics.reallocationYield.roasLiftPercent}% ROAS Lift ({Math.round(reallocation.efficiencyMultiplier * 100) / 100}x)
-            </Text>
-          </View>
-        </View>
-
-        {/* Deterministic Reallocation Model */}
+        {/* Deterministic Reallocation Model Balance Sheet */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Deterministic Capital Reallocation Model</Text>
           <View style={styles.reallocBox}>
@@ -284,47 +170,12 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
         {/* Top Bleeding Waste Queries Table */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Top Negative Exclusion Targets by Waste</Text>
-          <View style={styles.table}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderCell, { flex: 3.2 }]}>Search Term Query</Text>
-              <Text style={[styles.tableHeaderCell, { flex: 1.1 }]}>Match Type</Text>
-              <Text style={[styles.tableHeaderCell, { flex: 1, textAlign: 'right' }]}>Clicks</Text>
-              <Text style={[styles.tableHeaderCell, { flex: 1.5, textAlign: 'right' }]}>Marginal Waste</Text>
-              <Text style={[styles.tableHeaderCell, { flex: 1.2, textAlign: 'center' }]}>Safety</Text>
-            </View>
-
-            {topList.map((kw, idx) => (
-              <View
-                key={kw.sha256Hash || kw.id || idx}
-                style={[styles.tableRow, idx % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd]}
-              >
-                <Text style={[styles.tableCellBold, { flex: 3.2 }]}>
-                  {kw.keyword}
-                </Text>
-                <Text style={[styles.tableCell, { flex: 1.1, textTransform: 'uppercase' }]}>
-                  {kw.matchType}
-                </Text>
-                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>
-                  {(kw.clicks || 0).toLocaleString()}
-                </Text>
-                <Text style={[styles.tableCellBold, { flex: 1.5, textAlign: 'right', color: EXECUTIVE_COLOR_TOKENS.wasteBleed.primary }]}>
-                  {formatCurrency(kw.marginalWaste || 0, activeCurrency)}
-                </Text>
-                <Text
-                  style={[
-                    styles.tableCellBold,
-                    {
-                      flex: 1.2,
-                      textAlign: 'center',
-                      color: kw.hasCollision ? '#db2777' : EXECUTIVE_COLOR_TOKENS.safeList.primary,
-                    },
-                  ]}
-                >
-                  {kw.hasCollision ? 'Locked Exact' : 'Safe'}
-                </Text>
-              </View>
-            ))}
-          </View>
+          <TopExclusionsTable
+            keywords={effectiveTopKeywords}
+            currency={activeCurrency}
+            limit={6}
+            showConfidence={false}
+          />
         </View>
 
         {/* Custom Strategic Notes */}
@@ -337,13 +188,8 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
           </View>
         )}
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Generated via Sieve Client-Side Vector Engine • Zero Server Transmission • Zero-Leak Attested (0 B) • PII Scrubbed • UTF-8 Verified
-          </Text>
-          <Text style={styles.footerText}>Page 1 of 1</Text>
-        </View>
+        {/* Isolated Footer */}
+        <PdfFooter pageText="Page 1 of 1" />
       </Page>
     </Document>
   );

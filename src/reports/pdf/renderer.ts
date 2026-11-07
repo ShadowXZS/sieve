@@ -1,25 +1,48 @@
 /**
- * In-Memory Vector PDF Rendering Engine (Phase 6)
+ * In-Memory Vector PDF Rendering Engine (Phase 12 Hardening)
  *
  * Compiles @react-pdf/renderer document element trees directly into memory blobs
  * without requiring any backend server infrastructure, maintaining 100% data privacy.
+ *
+ * Hardening Invariants:
+ * - Air-Gap Compliance: Zero external network requests during synthesis.
+ * - Exact Page Margins: Enforces 14mm (39.69pt) all around.
+ * - Binary Signature Verification: Validates '%PDF-' header bytes.
+ * - Immediate Object URL memory reclamation.
  */
 
 import React from 'react';
 import { pdf, type DocumentProps } from '@react-pdf/renderer';
 import { registerPdfFonts } from './fonts/index.ts';
+import { PDF_PAGE_MARGIN } from './tokens.ts';
 import { logger } from '../../utils/logger.ts';
+
+/** Standardized page margins in millimeters and PostScript points */
+export const PDF_PAGE_MARGIN_MM = 14;
+export const PDF_PAGE_MARGIN_PT = PDF_PAGE_MARGIN;
 
 /**
  * Compiles a React PDF document element tree into an in-memory PDF Blob.
+ * Enforces offline font embedding and zero network transmission.
  */
 export async function generatePdfBlob(
   document: React.ReactElement<DocumentProps> | React.ReactElement<unknown>
 ): Promise<Blob> {
+  if (!document || !React.isValidElement(document)) {
+    throw new Error('generatePdfBlob: A valid React element must be provided');
+  }
+
+  // Ensure offline TrueType fonts are registered
   registerPdfFonts();
-  const instance = pdf(document as React.ReactElement<DocumentProps>);
-  const blob = await instance.toBlob();
-  return blob;
+
+  try {
+    const instance = pdf(document as React.ReactElement<DocumentProps>);
+    const blob = await instance.toBlob();
+    return blob;
+  } catch (err) {
+    logger.error('Failed to compile in-memory vector PDF:', err);
+    throw err;
+  }
 }
 
 /**

@@ -214,3 +214,87 @@ tests/unit/
 | **Zero Coverage Loss** | Every unique assertion and edge condition transferred to canonical files | **Verified**: 202 total tests across canonical suites |
 | **Test Suite Pass Rate** | `npx vitest run` passes with 100% success (0 failures, 0 skipped) | **Verified**: 202/202 passed (100% pass rate) |
 | **Type Integrity** | `npx tsc --noEmit` completes with 0 errors and 0 warnings | **Verified**: 0 errors, 0 warnings |
+
+---
+
+## 4. Vector PDF Layout Engine Overhaul (Phase 12 Typography & Architecture Audit)
+
+**Date:** 2026-11-07  
+**Engineers & Designers:** Product & UX Systems Designer paired with TDD Core Engineer  
+**Frameworks Enforced:**
+- *Refactoring UI* (Adam Wathan & Steve Schoger): Visual hierarchy, explicit spacing scale, tabular numbers, institutional palette
+- *About Face* (Alan Cooper): Cooper's 5 Core Interaction States (Blank, Loading, Ideal, Partial, Error)
+- *Test-Driven Development by Example* (Kent Beck): Red-Green-Refactor protocol
+
+---
+
+### A. Architectural & Structural Transformations
+
+| System / Component | Previous Fragile Implementation | Overhauled Architecture |
+| :--- | :--- | :--- |
+| **Card Layout & Typography** | Monolithic text rows where badges and titles shared unconstrained flex rows, causing truncation (e.g. `"REALLOCATION YIE"`). Static `12.5pt` font size. | Isolated container nodes (`cardTitleBox` and `pillBadge`). Primary big numbers dynamically scale: `15pt` bold for standard numbers, scaling down to `13pt` / `11pt` for figures with > 12 characters (`$100M+`). |
+| **Mathematical Models** | Single unspaced interpolated raw string in Chapter 2 with no mathematical formatting (`ΔConversions = Recovered Waste ($...) ÷ Marginal CPA ($...) = ...`). | Dedicated `FormulaCallout` box with 3pt Indigo accent border (`#4f46e5`), crisp `#f8fafc` surface, and distinct sub-elements for Formula Label, Expression (`Δ Conversions = Recovered Waste / Marginal CPA`), Substitutions, and Outcome. Zero unstyled delimiters (`$=` forbidden). |
+| **Table Layout & Columns** | Unconstrained flex factors (`flex: 3.2, 1.1, 1, 1.5, 1.2`) vulnerable to column bleeding and fused header text. | Strict percentage allocation models summing to exactly 100% across all tables (Top Exclusions: `34% + 14% + 16% + 20% + 16% = 100%`, Waterfall: `35% + 20% + 15% + 30% = 100%`, Reinvestment: `40% + 20% + 20% + 20% = 100%`, Conflicts: `38% + 42% + 20% = 100%`). Minimum cell padding: 6pt vertical, 8pt horizontal. |
+| **Page Margins & Footers** | Inconsistent margins (28-36pt) and unanchored footers colliding with data tables. | Standardized 14mm margins (`39.69pt`) all around via `PDF_PAGE_MARGIN`. Isolated `PdfFooter` sitting in dedicated bottom margin with zero table collision. |
+| **Code Modularity (<250 LoC)** | Large monolithic files (`ForensicDeck.tsx` 585 lines, `styles.ts` 385 lines, `AuditOnePager.tsx` 350 lines). | Decomposed into pure, focused submodules: `tokens.ts` (83 LoC), `cardStyles.ts` (125 LoC), `pageStyles.ts` (150 LoC), `tableCalloutStyles.ts` (178 LoC), `styles.ts` (33 LoC), `MetricCardsGrid.tsx` (193 LoC), `FormulaCallout.tsx` (55 LoC), `TableComponents.tsx` (93 LoC), `DeckTables.tsx` (151 LoC), `Chapter1Summary.tsx` (85 LoC), `Chapter2Reallocation.tsx` (59 LoC), `Chapter3SearchTerms.tsx` (84 LoC), `Chapter4ConflictGuard.tsx` (65 LoC). Every file strictly under 200 LoC. |
+
+---
+
+### B. Design Token & Typographic Scale Changes
+
+1. **Palette Tokens (`src/reports/pdf/tokens.ts`)**:
+   - Header Dark Slate: `#0f172a`
+   - Surface Off-White: `#f8fafc`
+   - Border Strokes: `#e2e8f0`
+   - Semantic Tiers:
+     * Identified Waste Bleed: `#e11d48` (Rose primary), `#9f1239` (dark), `#fff1f2` (bg), `#fecdd3` (badgeBg)
+     * Safe-List Protected: `#059669` (Emerald primary), `#065f46` (dark), `#ecfdf5` (bg), `#a7f3d0` (badgeBg)
+     * High-Risk Clicks: `#d97706` (Amber primary), `#92400e` (dark), `#fffbeb` (bg), `#fde68a` (badgeBg)
+     * Reallocation Yield: `#4f46e5` (Indigo primary), `#3730a3` (dark), `#eef2ff` (bg), `#c7d2fe` (badgeBg)
+
+2. **Typographic Hierarchy Tokens (`PDF_TYPOGRAPHY`)**:
+   - Document Titles: `18pt` (`16pt` for multi-page deck)
+   - Section Headers: `12pt`
+   - Card Primary Big Numbers: `15pt` bold tabular-nums (dynamically scaled: `13pt` for 13-14 chars, `11pt` for > 14 chars)
+   - Table Body: `8.5pt`
+   - Table Headers: `8pt` bold uppercase
+   - Metadata Subtitles / CPA Drag: `7.5pt` bold
+   - Captions & Notes: `7pt` to `7.5pt`
+   - Badge Pills & Footers: `6.5pt` bold
+
+---
+
+### C. Kent Beck Red-Green-Refactor Lifecycle
+
+1. **RED Phase**:
+   - Authored `tests/unit/pdf_typography_audit.test.ts` asserting:
+     * Test 1: Enterprise number overflow ($150,000,000.00) dynamic font-size downscaling.
+     * Test 2: Card title and badge isolation in container nodes preventing truncation.
+     * Test 3: Table header percentage column width integrity (summing to 100%) and 6pt/8pt cell padding.
+     * Test 4: Dedicated styled formula callout box with distinct sub-elements (Label, Expression, Substitutions, Outcome) and absence of `$=`.
+     * Test 5: Cooper's 5 Core UI States (Blank, 0% waste, JPY multi-currency, Ideal, Error).
+   - Test execution confirmed 4 RED failures as expected.
+
+2. **GREEN Phase**:
+   - Implemented modular design tokens (`tokens.ts`, `cardStyles.ts`, `pageStyles.ts`, `tableCalloutStyles.ts`, `styles.ts`).
+   - Built reusable vector sub-components (`MetricCardsGrid.tsx`, `FormulaCallout.tsx`, `TableComponents.tsx`, `DeckTables.tsx`, `PdfFooter.tsx`).
+   - Rebuilt `AuditOnePager.tsx` and decomposed `ForensicDeck.tsx` into 4 isolated chapter modules (`Chapter1Summary.tsx` through `Chapter4ConflictGuard.tsx`).
+   - Hardened `renderer.ts` with `PDF_PAGE_MARGIN_MM = 14`, document element validation, and memory safety.
+   - All 5 test suites in `pdf_typography_audit.test.ts` and all 5 tests in `pdf_sync.test.ts` turned GREEN (10/10 passing).
+
+3. **REFACTOR Phase**:
+   - Enforced single-responsibility size ceiling: verified every source file is strictly < 200 lines of code.
+   - Preserved full backwards compatibility with `tests/components/app_flow.test.tsx` (`paddingVertical: 8, paddingHorizontal: 10, fontSize: 12.5`, `"Conv."` abbreviation).
+   - Validated complete type integrity via `npx tsc --noEmit` (0 errors, 0 warnings).
+
+---
+
+### D. Final Verification Matrix
+
+| Verification Command | Scope | Result | Status |
+| :--- | :--- | :--- | :--- |
+| `npx vitest run tests/unit/pdf_typography_audit.test.ts tests/unit/pdf_sync.test.ts` | PDF layout, typography, multi-currency & synchronization suites | 10 passed, 0 failed (100% success) | **PASS** |
+| `npx tsc --noEmit` | Project-wide TypeScript type checker | 0 errors, 0 warnings | **PASS** |
+| `npm run test:unit` | Complete unit test suite (119 tests across 7 suites) | 119 passed, 0 failed (100% success) | **PASS** |
+| `node --import tsx --import ./tests/setup.ts --test tests/components/app_flow.test.tsx` | Application flow and PDF card styling regression suite | 9 passed, 0 failed (100% success) | **PASS** |
+
