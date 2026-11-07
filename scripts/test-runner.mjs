@@ -15,7 +15,7 @@ if (testFiles.length === 0) {
 
 const child = spawn(
   process.execPath,
-  ['--import', 'tsx', '--import', './tests/setup.ts', '--test', ...testFiles],
+  ['--import', 'tsx', '--import', './tests/setup.ts', '--test', '--test-concurrency=1', ...testFiles],
   { stdio: 'inherit' }
 );
 

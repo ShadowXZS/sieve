@@ -1,19 +1,19 @@
 /**
- * Phase 11 - Long-Tail & Match Dilution UI Component Test Suite
+ * Long-Tail & Match Dilution UI Component Test Suite
  *
- * Asserts:
+ * Verifies:
  * 1. LongTailDilutionProbe:
- *    - Renders balanced 2-column layout slot structure (`grid-cols-1 md:grid-cols-2`).
+ *    - Renders balanced 2-column layout slot structure (grid-cols-1 md:grid-cols-2).
  *    - Displays Fragmented Long-Tail slot with query counts, collective waste, and root token pills.
  *    - Displays Match-Type Dilution slot with dilution index badge, budget lost, and CPC inflation.
- *    - Button triggers opening Analytical Drawer with targeted tab selection.
  * 2. AnalyticalDrawer:
- *    - Renders as an accessible slide-over dialog (`role="dialog"`, `aria-modal="true"`).
+ *    - Renders as an accessible slide-over dialog (role="dialog", aria-modal="true").
  *    - Allows switching between 'Fragmented Long-Tail' and 'Match Dilution Index' tabs.
  *    - Displays detailed diagnostic table with root tokens, clicks, waste, and action buttons.
  *    - Displays detailed dilution table with exact CPC, broad CPC, inflation, and budget lost.
- *    - Filter input narrows visible records.
- *    - Accessible keyboard navigation: Escape key closes drawer.
+ *    - Keyboard accessibility: Escape key closes drawer.
+ * 3. Analytical Cards:
+ *    - LongTailBleedCard and DilutionAuditCard render metrics and tabular figures without layout shifts.
  */
 
 import test from 'node:test';
@@ -23,6 +23,8 @@ import { render, cleanup, act, fireEvent } from '@testing-library/react';
 
 import { LongTailDilutionProbe } from '../../src/components/dashboard/LongTailDilutionProbe.tsx';
 import { AnalyticalDrawer } from '../../src/components/dashboard/AnalyticalDrawer.tsx';
+import { LongTailBleedCard } from '../../src/components/analytics/LongTailBleedCard.tsx';
+import { DilutionAuditCard } from '../../src/components/analytics/DilutionAuditCard.tsx';
 import { useSieveStore } from '../../src/state/useSieveStore.ts';
 import type { PersistedNegativeKeyword } from '../../src/workers/protocol.ts';
 
@@ -232,3 +234,80 @@ test('AnalyticalDrawer: Opens, switches tabs, filters data, and closes via Escap
   );
 });
 
+test('Analytical Cards: LongTailBleedCard and DilutionAuditCard mount with metrics', () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  const keywords: PersistedNegativeKeyword[] = [
+    {
+      sha256Hash: 'f1',
+      keyword: 'free trial software',
+      matchType: 'broad',
+      formattedRule: 'free trial software',
+      platform: 1,
+      confidenceScore: 0.9,
+      cost: 15.0,
+      marginalWaste: 15.0,
+      clicks: 1,
+      conversions: 0,
+      hasCollision: false,
+      createdAt: Date.now(),
+    },
+    {
+      sha256Hash: 'f2',
+      keyword: 'free sample download',
+      matchType: 'broad',
+      formattedRule: 'free sample download',
+      platform: 1,
+      confidenceScore: 0.9,
+      cost: 25.0,
+      marginalWaste: 25.0,
+      clicks: 2,
+      conversions: 0,
+      hasCollision: false,
+      createdAt: Date.now(),
+    },
+    {
+      sha256Hash: 'ex1',
+      keyword: 'cloud hosting',
+      matchType: 'exact',
+      formattedRule: '[cloud hosting]',
+      platform: 1,
+      confidenceScore: 0.95,
+      cost: 40.0,
+      clicks: 40,
+      conversions: 4,
+      hasCollision: false,
+      createdAt: Date.now(),
+    },
+    {
+      sha256Hash: 'br1',
+      keyword: 'cloud hosting',
+      matchType: 'broad',
+      formattedRule: 'cloud hosting',
+      platform: 1,
+      confidenceScore: 0.85,
+      cost: 120.0,
+      clicks: 60,
+      conversions: 1,
+      hasCollision: false,
+      createdAt: Date.now(),
+    },
+  ];
+
+  act(() => {
+    useSieveStore.getState().setKeywords(keywords);
+  });
+
+  const { container: ltContainer } = render(<LongTailBleedCard />);
+  const ltCard = ltContainer.querySelector('[data-testid="long-tail-bleed-card"]');
+  assert.ok(ltCard, 'LongTailBleedCard must render with data-testid="long-tail-bleed-card"');
+  assert.ok(ltCard.textContent?.includes('$40.00'), 'Must render $40.00 collective waste');
+  assert.ok(ltCard.textContent?.includes('free'), 'Must display root token "free"');
+
+  const { container: dilContainer } = render(<DilutionAuditCard />);
+  const dilCard = dilContainer.querySelector('[data-testid="dilution-audit-card"]');
+  assert.ok(dilCard, 'DilutionAuditCard must render with data-testid="dilution-audit-card"');
+  // Excess cost = (120/60 - 40/40) * 60 = (2.00 - 1.00) * 60 = $60.00
+  assert.ok(dilCard.textContent?.includes('$60.00'), 'Must render $60.00 excess budget lost');
+});

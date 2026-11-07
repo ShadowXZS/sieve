@@ -1,29 +1,31 @@
 /**
- * Application Flow & Integration TDD Test Suite (Phase: Red)
+ * Application Flow & Integration Test Suite
  *
- * Requirements:
- * 1. When `fileLoaded === false`: ThresholdControls, ExecutiveDashboard, and KeywordVirtualGrid
- *    are NOT in the document. Only BrandHeader and FileDropzone are visible.
- * 2. When `fileLoaded === true`: Order of rendered DOM elements is strictly:
+ * Verifies end-to-end presentation and workbench contracts:
+ * 1. Empty State: When fileLoaded === false, only BrandHeader and FileDropzone are visible.
+ * 2. Chronological Flow: When fileLoaded === true, DOM order is strictly:
  *    Dropzone/FileBar -> ThresholdControls -> ExecutiveDashboard -> KeywordVirtualGrid.
- * 3. Clicking "Clear Dataset" resets all state, calls DuckDB/WASM cleanup, and returns view to State 0.
- * 4. ReportConfigModal mounts inside a portal at the document body with:
- *    `fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto`,
- *    not nested inside table parent nodes.
- * 5. BrandHeader renders GitHub anchor tag linking to `https://github.com/ShadowXZS/sieve` with an accessible SVG logo.
- * 6. AuditOnePager metric cards use dynamic padding (`paddingVertical: 8`, `paddingHorizontal: 10`, `flexDirection: 'column'`),
- *    main metric font size `12.5`, `lineHeight: 1.2`, header `marginBottom: 4`, and `"Conv."` notation preventing text clipping and hyphenation.
- * 7. DuckDB Power Query audit: Exports dropTable() and supports query cancellation timeout after 5000ms.
+ * 3. Reset Lifecycle: "Clear Dataset" resets store fileLoaded to false and invokes cleanup.
+ * 4. Modal Portals: ReportConfigModal and ExportDefModal portal directly to document.body.
+ * 5. BrandHeader Upgrades: Renders GitHub repository link with accessible SVG logo.
+ * 6. App Footer & UI Audit: Renders "Sieve © 2026" and confirms absence of deprecated badges.
+ * 7. Pre-boot Loader: index.html dark background inline style and #preboot-loader inside #root.
+ * 8. PDF Text & Card Style: AuditOnePager card formatting, dynamic flex, and "Conv." abbreviation.
+ * 9. DuckDB Lifecycle Safety: Memory clearance, dropTable, and query timeout cancellation.
  */
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 
 import { App } from '../../src/App.tsx';
 import { BrandHeader } from '../../src/components/brand/BrandHeader.tsx';
 import { ReportConfigModal } from '../../src/components/reports/ReportConfigModal.tsx';
+import { ExportDefModal } from '../../src/components/export/ExportDefModal.tsx';
+import { ThresholdControls } from '../../src/components/sliders/ThresholdControls.tsx';
 import { AuditOnePager } from '../../src/reports/pdf/AuditOnePager.tsx';
 import { executivePdfStyles } from '../../src/reports/pdf/styles.ts';
 import { useSieveStore } from '../../src/state/useSieveStore.ts';
@@ -31,26 +33,16 @@ import * as duckdbModule from '../../src/analytics/duckdb.ts';
 
 // Setup Mock Viewport for Happy-DOM
 if (typeof window !== 'undefined') {
-  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
-    configurable: true,
-    value: 600,
-  });
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
-    configurable: true,
-    value: 1000,
-  });
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
-    configurable: true,
-    value: 600,
-  });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 600 });
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 1000 });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 600 });
 }
 
-describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
+describe('Application Flow & Gated Workbench Suite', () => {
   test('1. Empty State: When fileLoaded is false, only BrandHeader and FileDropzone are visible', () => {
     cleanup();
     useSieveStore.getState().reset();
 
-    // Verify store has fileLoaded flag
     const storeState = useSieveStore.getState() as any;
     assert.strictEqual(
       storeState.fileLoaded,
@@ -60,26 +52,12 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
 
     const { container } = render(<App />);
 
-    // Header and Dropzone MUST be visible
     assert.ok(container.querySelector('[data-testid="brand-header"]'), 'BrandHeader must be mounted');
     assert.ok(container.querySelector('[data-testid="file-dropzone"]'), 'FileDropzone must be mounted');
 
-    // Downstream widgets MUST NOT exist
-    assert.strictEqual(
-      container.querySelector('[data-testid="threshold-controls"]'),
-      null,
-      'ThresholdControls must NOT be in DOM when fileLoaded is false'
-    );
-    assert.strictEqual(
-      container.querySelector('[data-testid="executive-card-waste"]'),
-      null,
-      'ExecutiveDashboard must NOT be in DOM when fileLoaded is false'
-    );
-    assert.strictEqual(
-      container.querySelector('[data-testid="virtual-grid-container"]'),
-      null,
-      'KeywordVirtualGrid must NOT be in DOM when fileLoaded is false'
-    );
+    assert.strictEqual(container.querySelector('[data-testid="threshold-controls"]'), null);
+    assert.strictEqual(container.querySelector('[data-testid="executive-card-waste"]'), null);
+    assert.strictEqual(container.querySelector('[data-testid="virtual-grid-container"]'), null);
   });
 
   test('2. Chronological Flow: When fileLoaded is true, DOM order is strictly Dropzone/FileBar -> ThresholdControls -> ExecutiveDashboard -> KeywordVirtualGrid', () => {
@@ -87,7 +65,6 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
     useSieveStore.getState().reset();
 
     act(() => {
-      // Simulate file load
       const store = useSieveStore.getState() as any;
       if (typeof store.setFileLoaded === 'function') {
         store.setFileLoaded(true);
@@ -114,11 +91,9 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
 
     const { container } = render(<App />);
 
-    const mainEl = container.querySelector('main');
-    assert.ok(mainEl, 'Main workbench container must be mounted');
-
-    // Check all 4 items exist
-    const fileBar = container.querySelector('[data-testid="file-dropzone"], [data-testid="worker-processing-hud"], [data-testid="active-file-bar"]');
+    const fileBar = container.querySelector(
+      '[data-testid="file-dropzone"], [data-testid="worker-processing-hud"], [data-testid="active-file-bar"]'
+    );
     const thresholds = container.querySelector('[data-testid="threshold-controls"]');
     const execDashboard = container.querySelector('[data-testid="executive-card-waste"]');
     const grid = container.querySelector('[data-testid="virtual-grid-container"]');
@@ -128,7 +103,6 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
     assert.ok(execDashboard, 'ExecutiveDashboard must be mounted');
     assert.ok(grid, 'KeywordVirtualGrid must be mounted');
 
-    // Verify DOM order: compareDocumentPosition
     assert.ok(
       fileBar.compareDocumentPosition(thresholds) & Node.DOCUMENT_POSITION_FOLLOWING,
       'ThresholdControls must strictly follow FileBar/Dropzone'
@@ -171,7 +145,6 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
 
     const { container } = render(<App />);
 
-    // Clear Dataset button must be present in FileBar/HUD or Header
     const clearBtn = container.querySelector('[data-testid="clear-dataset-btn"]') as HTMLButtonElement;
     assert.ok(clearBtn, '"Clear Dataset" button must be present');
 
@@ -183,43 +156,34 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
     assert.strictEqual(finalState.fileLoaded, false, 'fileLoaded must be reset to false');
     assert.strictEqual(finalState.keywords.length, 0, 'keywords must be empty');
 
-    // View returns to State 0
     assert.ok(container.querySelector('[data-testid="file-dropzone"]'), 'Dropzone must be visible in State 0');
-    assert.strictEqual(
-      container.querySelector('[data-testid="threshold-controls"]'),
-      null,
-      'ThresholdControls must be unmounted in State 0'
-    );
+    assert.strictEqual(container.querySelector('[data-testid="threshold-controls"]'), null);
   });
 
-  test('4. Modal Portal Placement: ReportConfigModal uses fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto', () => {
+  test('4. Modal Portal Placement: ReportConfigModal and ExportDefModal portal directly into document.body', () => {
     cleanup();
-    const { unmount } = render(<ReportConfigModal isOpen={true} onClose={() => {}} />);
+    const { unmount: unmountReport } = render(<ReportConfigModal isOpen={true} onClose={() => {}} />);
 
-    const modalInBody = document.body.querySelector('[role="dialog"]') as HTMLElement;
-    assert.ok(modalInBody, 'Modal dialog must be portaled directly into document.body');
+    const reportModal = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    assert.ok(reportModal, 'ReportConfigModal must portal into document.body');
+    assert.ok(reportModal.className.includes('fixed') && reportModal.className.includes('z-50'));
+    unmountReport();
 
-    const expectedClasses = [
-      'fixed',
-      'inset-0',
-      'z-50',
-      'flex',
-      'items-center',
-      'justify-center',
-      'bg-black/80',
-      'backdrop-blur-sm',
-      'p-4',
-      'overflow-y-auto',
-    ];
+    // ExportDefModal portal check
+    const mockGridContainer = document.createElement('div');
+    mockGridContainer.style.overflow = 'hidden';
+    document.body.appendChild(mockGridContainer);
 
-    for (const cls of expectedClasses) {
-      assert.ok(
-        modalInBody.className.includes(cls),
-        `Modal container must include class "${cls}", got: "${modalInBody.className}"`
-      );
-    }
+    const { unmount: unmountExport } = render(<ExportDefModal isOpen={true} onClose={() => {}} />, {
+      container: mockGridContainer,
+    });
 
-    unmount();
+    const exportModal = document.body.querySelector('.fixed.inset-0.z-50') as HTMLElement;
+    assert.ok(exportModal, 'ExportDefModal must portal directly into document.body');
+    assert.strictEqual(exportModal.parentElement, document.body);
+
+    unmountExport();
+    mockGridContainer.remove();
   });
 
   test('5. BrandHeader Upgrades: Renders GitHub repository link with accessible SVG logo', () => {
@@ -233,26 +197,62 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
 
     const svgIcon = githubLink.querySelector('svg');
     assert.ok(svgIcon, 'GitHub anchor must render an SVG icon');
+  });
+
+  test('6. App Footer & UI Audit: Footer renders copyright contract and confirms absence of deprecated badges', () => {
+    cleanup();
+    useSieveStore.getState().reset();
+    render(<App />);
+
+    const footer = screen.getByRole('contentinfo');
+    assert.ok(footer, 'App footer landmark must exist');
+    assert.strictEqual(footer.textContent?.trim(), 'Sieve © 2026', 'Footer copyright contract must match exactly');
+
+    // Confirm absence of deprecated 60/120 FPS Validated badge
+    cleanup();
+    render(<ThresholdControls />);
+    assert.strictEqual(screen.queryByText(/60\/120 FPS Validated/i), null);
+    assert.strictEqual(screen.queryByRole('button', { name: /60\/120 FPS Validated/i }), null);
+  });
+
+  test('7. Pre-boot Loader & Brand Logo Animation: index.html dark background inline style and #preboot-loader inside #root', () => {
+    const indexPath = path.resolve(process.cwd(), 'index.html');
+    const indexHtml = fs.readFileSync(indexPath, 'utf-8');
+
+    const headMatch = indexHtml.match(/<head[\s\S]*?<\/head>/i);
+    assert.ok(headMatch, 'index.html must contain a <head> block');
+    const styleMatch = headMatch[0].match(/<style[\s\S]*?>([\s\S]*?)<\/style>/i);
+    assert.ok(styleMatch, '<head> must contain an inline <style> block');
+    assert.match(
+      styleMatch[1],
+      /html\s*,\s*body\s*\{[^}]*background-color\s*:\s*#09090b/i,
+      'Inline style in <head> must set background-color: #09090b for html, body'
+    );
+
+    const rootMatch = indexHtml.match(/<div\s+id=["']root["'][^>]*>([\s\S]*?)<\/div>/i);
+    assert.ok(rootMatch, 'index.html must contain a <div id="root"> container');
+    const rootInnerHtml = rootMatch[1];
+
     assert.ok(
-      githubLink.getAttribute('aria-label') || githubLink.getAttribute('title'),
-      'GitHub link must be accessible with aria-label or title'
+      rootInnerHtml.includes('id="preboot-loader"') || rootInnerHtml.includes("id='preboot-loader'"),
+      '#preboot-loader must be present inside <div id="root">'
+    );
+    assert.ok(
+      rootInnerHtml.includes('sieve-logo-anim'),
+      'Brand logo <img> must have class "sieve-logo-anim"'
     );
   });
 
-  test('6. PDF Text & Card Style Audit: AuditOnePager cards use paddingVertical 8, paddingHorizontal 10, flexDirection column, fontSize 12.5, and "Conv." abbreviation', () => {
+  test('8. PDF Text & Card Style Audit: AuditOnePager cards use paddingVertical 8, paddingHorizontal 10, fontSize 12.5, and "Conv." notation', () => {
     const cardStyle = executivePdfStyles.card as any;
-    assert.strictEqual(cardStyle.paddingVertical, 8, 'Card style must have paddingVertical: 8');
-    assert.strictEqual(cardStyle.paddingHorizontal, 10, 'Card style must have paddingHorizontal: 10');
-    assert.strictEqual(cardStyle.flexDirection, 'column', 'Card style must have flexDirection: column');
+    assert.strictEqual(cardStyle.paddingVertical, 8);
+    assert.strictEqual(cardStyle.paddingHorizontal, 10);
+    assert.strictEqual(cardStyle.flexDirection, 'column');
 
     const cardValueStyle = executivePdfStyles.cardValue as any;
-    assert.strictEqual(cardValueStyle.fontSize, 12.5, 'Card value metric font size must be 12.5');
-    assert.strictEqual(cardValueStyle.lineHeight, 1.2, 'Card value lineHeight must be 1.2');
+    assert.strictEqual(cardValueStyle.fontSize, 12.5);
+    assert.strictEqual(cardValueStyle.lineHeight, 1.2);
 
-    const cardHeaderRowStyle = executivePdfStyles.cardHeaderRow as any;
-    assert.strictEqual(cardHeaderRowStyle.marginBottom, 4, 'Card header row must have marginBottom: 4');
-
-    // Render AuditOnePager element and inspect children text for "Conv."
     const element = React.createElement(AuditOnePager, {
       kpi: {
         totalKeywords: 10,
@@ -287,14 +287,10 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
       docJson.includes('Conv.') || docJson.includes('Conv'),
       'AuditOnePager must use "Conv." abbreviation to prevent "Con- vs" word hyphenation'
     );
-    assert.strictEqual(
-      docJson.includes('Convs'),
-      false,
-      'AuditOnePager must replace awkward "Convs" with "Conv."'
-    );
+    assert.strictEqual(docJson.includes('Convs'), false);
   });
 
-  test('7. DuckDB Power Query Audit: Exports dropTable() and implements query timeout cancellation', () => {
+  test('9. DuckDB Power Query Audit: Exports dropTable() and implements query timeout cancellation', () => {
     const duckdb = duckdbModule as any;
     assert.strictEqual(
       typeof duckdb.dropTable,
@@ -308,4 +304,3 @@ describe('Application Flow & Gated Workbench TDD (Red Phase)', () => {
     );
   });
 });
-

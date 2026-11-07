@@ -1,5 +1,5 @@
 /**
- * Phase 13 Component Tests: Power Query Drawer
+ * Power Query Drawer Component Test Suite
  *
  * Verifies:
  * 1. BrandHeader renders Power Query trigger button.
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { BrandHeader } from '../../src/components/brand/BrandHeader.tsx';
-import { PowerQueryDrawer } from '../../src/components/dashboard/PowerQueryDrawer.tsx';
+import { PowerQueryDrawer } from '../../src/components/analytics/PowerQueryDrawer.tsx';
 import { useSieveStore } from '../../src/state/useSieveStore.ts';
 
 test('PowerQueryDrawer: BrandHeader renders Power Query SQL button', () => {

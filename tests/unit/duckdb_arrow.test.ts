@@ -1,10 +1,13 @@
 /**
- * TDD Phase 13: DuckDB & Apache Arrow IPC Integration Suite
+ * DuckDB-Wasm & Apache Arrow IPC Integration Suite
  *
  * Requirements:
  * 1. DuckDB-Wasm initializes cleanly and runs analytical SQL queries in < 25ms.
  * 2. Arrow IPC bridge converts parsed WASM memory into valid Arrow RecordBatches with preserved schema types.
  * 3. PowerQuery drawer handles user SQL queries and returns tabular records without throwing uncaught exceptions.
+ * 4. DuckDB-Wasm embedding in Worker Pool for fast local SQL execution.
+ * 5. Zero-Copy Arrow IPC serialization from Rust WASM Core to DuckDB-Wasm in worker pool.
+ * 6. Unlinking and dropping in-memory virtual tables on new report ingestion.
  */
 
 import { test } from 'node:test';
@@ -12,7 +15,6 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-// Modules to be implemented in Step 2 (Green Phase)
 import {
   initDuckDB,
   executeDuckDBSQL,
@@ -27,6 +29,7 @@ import {
 } from '../../src/analytics/arrow_bridge.ts';
 
 import { PowerQueryDrawer } from '../../src/components/analytics/PowerQueryDrawer.tsx';
+import { SieveWorkerPool } from '../../src/workers/pool.ts';
 
 test('1. DuckDB-Wasm initializes cleanly and runs analytical SQL queries in < 25ms', async () => {
   const db = await initDuckDB();
@@ -234,24 +237,20 @@ test('3. PowerQuery drawer handles user SQL queries and returns tabular records 
     })
   );
 
-  // Verify elements render
   const input = screen.getByTestId('power-query-sql-input') as HTMLTextAreaElement;
   assert.ok(input, 'SQL input should be mounted');
 
   const runBtn = screen.getByTestId('power-query-run-btn');
   assert.ok(runBtn, 'Run button should be mounted');
 
-  // Execute query
   fireEvent.click(runBtn);
   await new Promise((r) => setTimeout(r, 20));
 
-  // Verify tabular records displayed
   const table = screen.getByTestId('power-query-table');
   assert.ok(table, 'Results table should mount');
   assert.ok(table.textContent?.includes('cheap flight tickets'));
   assert.ok(table.textContent?.includes('hotel reservations'));
 
-  // Execute invalid query and verify exception is caught and rendered gracefully
   fireEvent.change(input, { target: { value: 'SELECT * FROM SYNTAX_ERROR' } });
   fireEvent.click(runBtn);
   await new Promise((r) => setTimeout(r, 20));
@@ -259,4 +258,115 @@ test('3. PowerQuery drawer handles user SQL queries and returns tabular records 
   const errorEl = screen.getByTestId('power-query-error');
   assert.ok(errorEl, 'Error banner should be displayed without throwing uncaught exception');
   assert.ok(errorEl.textContent?.includes('Parser Error'));
+});
+
+test('4. DuckDB-Wasm Embedding in Worker Pool - Fast Local SQL Execution', async () => {
+  const pool = new SieveWorkerPool({ concurrency: 2 });
+
+  try {
+    const res = await pool.executeSQL('SELECT 1 + 1 as sum_val, 42 as answer;');
+    assert.equal(res.rowCount, 1);
+    assert.deepEqual(res.columns, ['sum_val', 'answer']);
+    assert.equal(res.rows[0].sum_val, 2);
+    assert.equal(res.rows[0].answer, 42);
+    assert.ok(res.executionTimeMs >= 0);
+  } finally {
+    await pool.terminate();
+  }
+});
+
+test('5. Zero-Copy Arrow IPC Serialization from Rust WASM Core to DuckDB-Wasm', async () => {
+  const pool = new SieveWorkerPool({ concurrency: 1 });
+
+  try {
+    const csvContent = [
+      'Search term,Campaign,Ad group,Clicks,Cost,Conversions',
+      'cheap running shoes,US_Search,Shoes_AG,25,50.00,2',
+      'best trail running shoes,US_Search,Shoes_AG,15,45.00,0',
+      'luxury designer sneakers,UK_Search,Sneakers_AG,10,80.00,1',
+      'free running shoes,US_Search,Free_AG,5,15.00,0',
+      'custom orthotic insoles,UK_Search,Insoles_AG,30,120.00,5',
+    ].join('\n');
+
+    const encoder = new TextEncoder();
+    const csvBuffer = encoder.encode(csvContent).buffer;
+
+    const ingestRes = await pool.executeIngestion('task_arrow_ipc_1', csvBuffer, true, 0, 50);
+    assert.equal(ingestRes.statusCode, 0);
+    assert.ok(ingestRes.keywords && ingestRes.keywords.length > 0);
+
+    const sqlRes = await pool.executeSQL(
+      'SELECT query, campaign, clicks, cost, conversions FROM search_terms ORDER BY clicks DESC;'
+    );
+
+    assert.equal(sqlRes.rowCount, 5);
+    assert.deepEqual(sqlRes.columns, ['query', 'campaign', 'clicks', 'cost', 'conversions']);
+    assert.equal(sqlRes.rows[0].query, 'custom orthotic insoles');
+    assert.equal(sqlRes.rows[0].clicks, 30);
+    assert.equal(sqlRes.rows[0].cost, 120);
+    assert.equal(sqlRes.rows[0].conversions, 5);
+
+    const rollupRes = await pool.executeSQL(`
+      SELECT
+        campaign,
+        count(*) as total_terms,
+        sum(clicks) as total_clicks,
+        round(sum(cost), 2) as total_cost,
+        sum(conversions) as total_conv
+      FROM search_terms
+      GROUP BY campaign
+      ORDER BY total_cost DESC;
+    `);
+
+    assert.equal(rollupRes.rowCount, 2);
+    assert.equal(rollupRes.rows[0].campaign, 'UK_Search');
+    assert.equal(rollupRes.rows[0].total_cost, 200);
+    assert.equal(rollupRes.rows[0].total_clicks, 40);
+    assert.equal(rollupRes.rows[0].total_conv, 6);
+
+    assert.equal(rollupRes.rows[1].campaign, 'US_Search');
+    assert.equal(rollupRes.rows[1].total_cost, 110);
+    assert.equal(rollupRes.rows[1].total_clicks, 45);
+  } finally {
+    await pool.terminate();
+  }
+});
+
+test('6. Unlink and Drop In-Memory Virtual Tables on New Report Ingestion', async () => {
+  const pool = new SieveWorkerPool({ concurrency: 1 });
+
+  try {
+    const encoder = new TextEncoder();
+
+    const report1 = [
+      'Search term,Campaign,Ad group,Clicks,Cost,Conversions',
+      'alpha query,Camp_A,AG1,10,20.00,1',
+      'beta query,Camp_A,AG1,20,40.00,2',
+    ].join('\n');
+
+    await pool.executeIngestion('task_r1', encoder.encode(report1).buffer, true, 0);
+
+    const r1Res = await pool.executeSQL('SELECT count(*) as cnt FROM search_terms;');
+    assert.equal(r1Res.rows[0].cnt, 2);
+
+    await pool.unlinkTables();
+    const unlinkedRes = await pool.executeSQL(
+      "SELECT count(*) as cnt FROM information_schema.tables WHERE table_name = 'search_terms';"
+    );
+    assert.equal(unlinkedRes.rows[0].cnt, 0);
+
+    const report2 = [
+      'Search term,Campaign,Ad group,Clicks,Cost,Conversions',
+      'gamma query,Camp_B,AG2,50,100.00,5',
+    ].join('\n');
+
+    await pool.executeIngestion('task_r2', encoder.encode(report2).buffer, true, 0);
+
+    const r2Res = await pool.executeSQL('SELECT query, clicks, cost FROM search_terms;');
+    assert.equal(r2Res.rowCount, 1);
+    assert.equal(r2Res.rows[0].query, 'gamma query');
+    assert.equal(r2Res.rows[0].clicks, 50);
+  } finally {
+    await pool.terminate();
+  }
 });

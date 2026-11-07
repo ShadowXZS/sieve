@@ -1,12 +1,12 @@
 /**
- * Phase 9 - Multi-Currency & UI Integration Component Tests
+ * CurrencySelector & Multi-Currency Presentation Layer Test Suite
  *
- * Validates:
- * 1. BrandHeader renders multi-currency toggle strictly for $, ₹, €, ¥, £.
- * 2. Manual toggle override updates store and locks against auto-detection overwrite.
- * 3. FileDropzone auto-detection triggers currency update when not manually overridden.
- * 4. SummaryDashboard displays formatted waste with zero-decimal JPY and locale formatting.
- * 5. KeywordVirtualGrid and ThresholdControls render tabular-nums font-mono without layout jitter.
+ * Verifies:
+ * 1. BrandHeader renders unobtrusive currency toggles for all 5 supported currencies ($, ₹, €, ¥, £).
+ * 2. Quick cycle toggle button cycles sequentially through currencies.
+ * 3. Reactive formatting updates across dashboard and virtual grid with JPY zero-decimal precision.
+ * 4. FileDropzone auto-detects currency from CSV headers/cells when not manually overridden.
+ * 5. Numerical metrics enforce font-mono tabular-nums to prevent visual layout jitter.
  */
 
 import test from 'node:test';
@@ -15,6 +15,7 @@ import React from 'react';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 
 import { BrandHeader } from '../../src/components/brand/BrandHeader.tsx';
+import { CurrencySelector } from '../../src/components/brand/CurrencySelector.tsx';
 import { SummaryDashboard } from '../../src/components/kpi/SummaryDashboard.tsx';
 import { ThresholdControls } from '../../src/components/sliders/ThresholdControls.tsx';
 import { KeywordVirtualGrid } from '../../src/components/grid/KeywordVirtualGrid.tsx';
@@ -22,27 +23,15 @@ import { FileDropzone } from '../../src/components/dropzone/FileDropzone.tsx';
 import { useSieveStore, SUPPORTED_CURRENCIES } from '../../src/state/useSieveStore.ts';
 import type { PersistedNegativeKeyword } from '../../src/workers/protocol.ts';
 
-// Setup Mock Viewport for Happy-DOM
+// Mock Viewport for Happy-DOM
 if (typeof window !== 'undefined') {
-  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
-    configurable: true,
-    value: 600,
-  });
-  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
-    configurable: true,
-    value: 1000,
-  });
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
-    configurable: true,
-    value: 600,
-  });
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
-    configurable: true,
-    value: 1000,
-  });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 600 });
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 1000 });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 600 });
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 1000 });
 }
 
-test('Phase 9 UI: BrandHeader renders unobtrusive currency toggle for all 5 currencies', () => {
+test('CurrencySelector: Renders toggle buttons for all 5 supported currencies and handles selection', () => {
   cleanup();
   useSieveStore.getState().reset();
 
@@ -78,7 +67,7 @@ test('Phase 9 UI: BrandHeader renders unobtrusive currency toggle for all 5 curr
   assert.equal(useSieveStore.getState().isCurrencyManual, true);
 });
 
-test('Phase 9 UI: Quick cycle toggle button cycles through supported currencies', () => {
+test('CurrencySelector: Quick cycle toggle button cycles through supported currencies', () => {
   cleanup();
   useSieveStore.getState().reset();
 
@@ -116,7 +105,20 @@ test('Phase 9 UI: Quick cycle toggle button cycles through supported currencies'
   assert.equal(useSieveStore.getState().currency, '$');
 });
 
-test('Phase 9 UI: SummaryDashboard & KeywordVirtualGrid update currency display with JPY zero-decimal rounding', () => {
+test('CurrencySelector: Accessible ARIA roles allow selecting currency button directly', () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  render(<CurrencySelector />);
+  const eurButton = screen.getByRole('button', { name: /Select € currency/i });
+  assert.ok(eurButton);
+
+  fireEvent.click(eurButton);
+  assert.strictEqual(useSieveStore.getState().currency, '€');
+  assert.strictEqual(useSieveStore.getState().isCurrencyManual, true);
+});
+
+test('Multi-Currency UI: SummaryDashboard & KeywordVirtualGrid update currency display with JPY zero-decimal rounding', () => {
   cleanup();
   useSieveStore.getState().reset();
 
@@ -173,7 +175,7 @@ test('Phase 9 UI: SummaryDashboard & KeywordVirtualGrid update currency display 
   assert.equal(wasteCard.textContent?.trim(), '₹12,450.40');
 });
 
-test('Phase 9 UI: FileDropzone auto-detects currency from CSV when not manually overridden', async () => {
+test('Multi-Currency UI: FileDropzone auto-detects currency from CSV when not manually overridden', async () => {
   cleanup();
   useSieveStore.getState().reset();
   assert.equal(useSieveStore.getState().currency, '$');
@@ -210,7 +212,8 @@ test('Phase 9 UI: FileDropzone auto-detects currency from CSV when not manually 
   );
 
   // Ingest a Euro-denominated CSV
-  const euroCsv = 'Search keyword,Campaign,Ad group,Currency,Clicks,Impressions,Cost,Conversions\n"chaussures",Camp1,Adg1,EUR,30,500,"85,50 €",0\n';
+  const euroCsv =
+    'Search keyword,Campaign,Ad group,Currency,Clicks,Impressions,Cost,Conversions\n"chaussures",Camp1,Adg1,EUR,30,500,"85,50 €",0\n';
   const file = new File([euroCsv], 'euro_report.csv', { type: 'text/csv' });
 
   const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -243,7 +246,7 @@ test('Phase 9 UI: FileDropzone auto-detects currency from CSV when not manually 
   assert.equal(useSieveStore.getState().currency, '£');
 });
 
-test('Phase 9 UI: Numerical display elements enforce tabular-nums font-mono', () => {
+test('Multi-Currency UI: Numerical display elements enforce tabular-nums font-mono', () => {
   cleanup();
   useSieveStore.getState().reset();
 
@@ -259,4 +262,3 @@ test('Phase 9 UI: Numerical display elements enforce tabular-nums font-mono', ()
   const tabularElements = container.querySelectorAll('.tabular-nums.font-mono');
   assert.ok(tabularElements.length >= 5, 'All currency and numerical displays must use tabular-nums font-mono');
 });
-

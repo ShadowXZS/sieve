@@ -1,5 +1,5 @@
 /**
- * Reports and Capital Reallocation Engine Tests (Phase 6 - TDD Red Phase)
+ * Reports and Capital Reallocation Engine Tests
  *
  * Verifies:
  * 1. Capital efficiency and dynamic reallocation formulas compute projected conversions
@@ -12,11 +12,10 @@
  * 5. Zero-server privacy: zero network requests dispatched during PDF generation.
  */
 
-import { test, describe, beforeEach, afterEach } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 
-// Modules under test (will fail in Red Phase until implemented)
 import {
   calculateReallocationModel,
   calculateCapitalEfficiency,
@@ -107,7 +106,7 @@ const MOCK_KEYWORDS: PersistedNegativeKeyword[] = [
   },
 ];
 
-describe('Phase 6: Capital Efficiency & Reallocation Modeling', () => {
+describe('Capital Efficiency & Reallocation Modeling', () => {
   test('Deterministic Reallocation: Computes incremental conversions from recovered waste and marginal CPA', () => {
     const params: ReallocationParams = {
       recoveredWaste: 10000,
@@ -119,35 +118,14 @@ describe('Phase 6: Capital Efficiency & Reallocation Modeling', () => {
 
     const model: ReallocationModel = calculateReallocationModel(params);
 
-    // Waste $10,000 reallocated at marginal CPA of $50/conversion
-    // Incremental conversions = 10,000 / 50 = 200 conversions
     assert.equal(model.incrementalConversions, 200);
-
-    // Total projected conversions = 500 + 200 = 700
     assert.equal(model.projectedConversions, 700);
-
-    // Baseline CPA = 50,000 / 500 = $100.00
     assert.equal(model.currentCPA, 100);
-
-    // Projected CPA = 50,000 / 700 = $71.43
     assert.equal(Math.round(model.projectedCPA * 100) / 100, 71.43);
-
-    // Baseline ROAS = 150,000 / 50,000 = 3.0x
     assert.equal(model.currentROAS, 3.0);
-
-    // AOV = 150,000 / 500 = $300/conversion
-    // Incremental revenue = 200 * $300 = $60,000
-    // Total projected revenue = $150,000 + $60,000 = $210,000
-    // Projected ROAS = 210,000 / 50,000 = 4.2x
     assert.equal(Math.round(model.projectedROAS * 100) / 100, 4.2);
-
-    // ROAS lift % = ((4.2 - 3.0) / 3.0) * 100 = 40.0%
     assert.equal(Math.round(model.roasLiftPercent * 10) / 10, 40.0);
-
-    // Conversion lift % = (200 / 500) * 100 = 40.0%
     assert.equal(Math.round(model.conversionLiftPercent * 10) / 10, 40.0);
-
-    // Capital efficiency multiplier = 100 / 71.43 = 1.4x
     assert.equal(Math.round(model.efficiencyMultiplier * 100) / 100, 1.4);
   });
 
@@ -189,17 +167,15 @@ describe('Phase 6: Capital Efficiency & Reallocation Modeling', () => {
   });
 
   test('Capital Efficiency Index calculation', () => {
-    // Current CPA = $100, Target/Marginal CPA = $50 -> Efficiency index = 2.0
     const eff = calculateCapitalEfficiency(10000, 50, 100);
     assert.equal(eff, 2.0);
 
-    // Current CPA = $50, Marginal CPA = $50 -> Efficiency index = 1.0
     const effBase = calculateCapitalEfficiency(10000, 50, 50);
     assert.equal(effBase, 1.0);
   });
 });
 
-describe('Phase 6: PDF Vector Layout & Template Structure', () => {
+describe('PDF Vector Layout & Template Structure', () => {
   const reallocationModel: ReallocationModel = calculateReallocationModel({
     recoveredWaste: MOCK_KPI.totalWaste,
     marginalCPA: 60,
@@ -243,7 +219,7 @@ describe('Phase 6: PDF Vector Layout & Template Structure', () => {
   });
 });
 
-describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', () => {
+describe('In-Memory Client-Side PDF Synthesis & Binary Verification', () => {
   const reallocationModel: ReallocationModel = calculateReallocationModel({
     recoveredWaste: MOCK_KPI.totalWaste,
     marginalCPA: 50,
@@ -263,14 +239,12 @@ describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', (
       reportDate: '2026-11-04',
     });
 
-    // Generate PDF blob in-memory
     const blob = await generatePdfBlob(docElement);
 
     assert.ok(blob instanceof Blob, 'Generated output must be an instance of Blob');
     assert.ok(blob.size > 500, `PDF blob must have valid content size (actual: ${blob.size} bytes)`);
     assert.equal(blob.type, 'application/pdf');
 
-    // Verify binary signature (%PDF- = 0x25 0x50 0x44 0x46 0x2D)
     const isValidSignature = await verifyPdfSignature(blob);
     assert.equal(isValidSignature, true, 'Binary buffer must start with %PDF- magic signature');
 
@@ -301,7 +275,6 @@ describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', (
   test('Zero-Server Privacy Guarantee: Confirms no external network calls made during PDF rendering', async () => {
     let networkCallMade = false;
 
-    // Track global fetch calls
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (...args: any[]) => {
       networkCallMade = true;
@@ -334,7 +307,6 @@ describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', (
     assert.equal(formatCurrency(1000000, '¥'), '¥1,000,000');
     assert.equal(formatCurrency(1234567.89, '₹'), '₹12,34,567.89');
 
-    // AuditOnePager with localized Euro symbol
     const euroDoc = React.createElement(AuditOnePager, {
       organizationTitle: 'European E-Commerce Audit',
       currencySymbol: '€',
@@ -368,7 +340,6 @@ describe('Phase 6: In-Memory Client-Side PDF Synthesis & Binary Verification', (
 
       assert.equal(createdUrl, 'blob:http://localhost/mock-uuid');
 
-      // Wait 150ms for the revocation timer to complete
       await new Promise((resolve) => setTimeout(resolve, 150));
       assert.equal(revokedUrl, 'blob:http://localhost/mock-uuid', 'Object URL must be revoked after download');
     } finally {

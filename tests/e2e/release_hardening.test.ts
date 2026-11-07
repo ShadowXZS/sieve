@@ -22,7 +22,7 @@ import {
   scrubPII,
   scrubSearchTerms,
   type PIIScrubberOptions,
-} from '../../src/sanitizer/pii_scrubber.ts';
+} from '../../src/crypto/pii_scrubber.ts';
 import {
   AirGapAuditor,
   generateAirGapAttestation,

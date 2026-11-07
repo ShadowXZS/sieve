@@ -16,11 +16,19 @@ import type {
   PMaxCannibalizationRecord,
   NegativeCollisionResult,
   PersistedNegativeKeyword,
+  IngestProgressResponse,
 } from './protocol.ts';
 import * as duckdb from '@duckdb/duckdb-wasm/blocking';
 import * as arrow from 'apache-arrow';
-import { parseCsvTextToRecords, detectCurrencySymbol } from '../utils/csvParser.ts';
+import {
+  parseCsvTextToRecords,
+  detectCurrencySymbol,
+  splitBufferIntoChunks,
+} from '../utils/csvParser.ts';
 import { logger } from '../utils/logger.ts';
+
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 export class SieveWorkerCore {
   private instance: WebAssembly.Instance | null = null;
@@ -93,6 +101,11 @@ export class SieveWorkerCore {
       const imports = this.buildImports(exportsObj);
       const instance = await WebAssembly.instantiate(wasmSource, imports);
       this.setupInstance(instance, exportsObj);
+      try {
+        await this.ensureDuckDB();
+      } catch (duckErr) {
+        logger.debug('DuckDB pre-warm notice in worker init:', duckErr);
+      }
       return;
     } else {
       wasmBuffer = wasmSource;
@@ -103,6 +116,12 @@ export class SieveWorkerCore {
     const imports = this.buildImports(exportsObj);
     const instance = await WebAssembly.instantiate(wasmModule, imports);
     this.setupInstance(instance, exportsObj);
+
+    try {
+      await this.ensureDuckDB();
+    } catch (duckErr) {
+      logger.debug('DuckDB pre-warm notice in worker init:', duckErr);
+    }
   }
 
   private buildImports(exportsObj: Record<string, any>) {
@@ -245,7 +264,10 @@ export class SieveWorkerCore {
     this.initialized = false;
   }
 
-  public async handleCommand(command: WorkerCommand): Promise<WorkerResponse> {
+  public async handleCommand(
+    command: WorkerCommand,
+    onProgress?: (response: WorkerResponse) => void
+  ): Promise<WorkerResponse> {
     try {
       if (!this.initialized && command.type !== 'INIT_WASM') {
         await this.init();
@@ -259,6 +281,136 @@ export class SieveWorkerCore {
             requestId: command.requestId,
             workerId: this.workerId,
           };
+        }
+
+        case 'INGEST_FILE': {
+          try {
+            const { fileBuffer, fileSize } = command.payload;
+            const targetCPA = command.targetCPA ?? 50;
+
+            if (fileSize < 8 || fileBuffer.byteLength < 8) {
+              throw new Error(
+                'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)'
+              );
+            }
+
+            // Dialect / Schema Detection off-thread in dedicated worker
+            const sampleLen = Math.min(fileSize, 65536);
+            const sampleU8 = new Uint8Array(fileBuffer, 0, sampleLen);
+            const samplePtr = this.exports.allocate_buffer(sampleLen);
+            if (samplePtr !== 0) {
+              try {
+                new Uint8Array(this.memory!.buffer, samplePtr, sampleLen).set(sampleU8);
+                this.exports.detect_schema(samplePtr, sampleLen);
+              } finally {
+                this.exports.deallocate_buffer(samplePtr, sampleLen);
+              }
+            }
+
+            // Chunking without OOM: process in bounded 512KB slices along newlines
+            const CHUNK_SIZE = 512 * 1024;
+            const u8All = new Uint8Array(fileBuffer);
+            let currentStart = 0;
+            let chunkIdx = 0;
+
+            let lastProgressTime = 0;
+            const MIN_PROGRESS_INTERVAL_MS = 16.6; // Capped at ~60Hz
+            let bytesProcessed = 0;
+            let estimatedRows = 0;
+            let lastStatusCode = 0;
+            let lastKeywords: PersistedNegativeKeyword[] | undefined = undefined;
+
+            while (currentStart < fileSize) {
+              await yieldToEventLoop();
+
+              let candidateEnd = Math.min(currentStart + CHUNK_SIZE, fileSize);
+              if (candidateEnd < fileSize) {
+                const searchEnd = Math.min(candidateEnd + 65536, fileSize);
+                for (let b = candidateEnd; b < searchEnd; b++) {
+                  if (u8All[b] === 0x0a) {
+                    candidateEnd = b + 1;
+                    break;
+                  }
+                }
+              }
+
+              const isFinal = candidateEnd >= fileSize;
+              const chunkBuf = fileBuffer.slice(currentStart, candidateEnd);
+              const chunkLen = candidateEnd - currentStart;
+              currentStart = candidateEnd;
+
+              const chunkRes = await this.handleCommand({
+                type: 'INGEST_CSV_CHUNK',
+                requestId: `${command.requestId}_chunk_${chunkIdx++}`,
+                chunkBuffer: chunkBuf,
+                isFinal,
+                targetCPA,
+              });
+
+              if (chunkRes.type === 'INGEST_CHUNK_COMPLETE') {
+                lastStatusCode = chunkRes.statusCode;
+                if (chunkRes.keywords) {
+                  lastKeywords = chunkRes.keywords;
+                }
+              } else if (chunkRes.type === 'WORKER_ERROR') {
+                throw new Error(chunkRes.error);
+              }
+
+              bytesProcessed += chunkLen;
+              // Approximate rows: ~50 bytes per CSV line
+              estimatedRows = Math.round(bytesProcessed / 50);
+
+              // Throttled progress reporting (minimum 16ms interval, plus final event)
+              const now = performance.now();
+              if (
+                isFinal ||
+                lastProgressTime === 0 ||
+                now - lastProgressTime >= MIN_PROGRESS_INTERVAL_MS
+              ) {
+                lastProgressTime = now;
+                const progEvent: IngestProgressResponse = {
+                  type: 'INGEST_PROGRESS',
+                  requestId: command.requestId,
+                  bytesProcessed,
+                  estimatedRows,
+                  totalBytes: fileSize,
+                  percent: Math.min(
+                    100,
+                    Math.round((bytesProcessed / Math.max(1, fileSize)) * 100)
+                  ),
+                  workerId: this.workerId,
+                };
+                if (onProgress) {
+                  onProgress(progEvent);
+                } else if (
+                  typeof self !== 'undefined' &&
+                  typeof (self as any).postMessage === 'function'
+                ) {
+                  (self as any).postMessage(progEvent);
+                }
+              }
+            }
+
+            return {
+              type: 'INGEST_CHUNK_COMPLETE',
+              requestId: command.requestId,
+              statusCode: lastStatusCode,
+              bytesConsumed: bytesProcessed,
+              workerId: this.workerId,
+              keywords: lastKeywords,
+            };
+          } catch (err: any) {
+            if (
+              typeof self !== 'undefined' &&
+              typeof (self as any).postMessage === 'function'
+            ) {
+              (self as any).postMessage({
+                type: 'PARSE_ERROR',
+                payload: { message: err?.message || String(err) },
+              });
+            }
+            throw err;
+          }
         }
 
         case 'INGEST_CSV_CHUNK': {
@@ -461,10 +613,12 @@ export class SieveWorkerCore {
                         });
 
                         // Serialize to Apache Arrow IPC Stream
+                        await yieldToEventLoop();
                         const ipcBuffer = arrow.tableToIPC(arrowTable, 'stream');
 
                         // Embed & Synchronize inside DuckDB-Wasm virtual table
                         try {
+                          await yieldToEventLoop();
                           await this.ensureDuckDB();
                           if (this.duckdbConn) {
                             try {
@@ -472,6 +626,7 @@ export class SieveWorkerCore {
                             } catch (dropErr) {
                               logger.debug('Worker search_terms drop notice:', dropErr);
                             }
+                            await yieldToEventLoop();
                             this.duckdbConn.insertArrowFromIPCStream(ipcBuffer, {
                               name: 'search_terms',
                             });
@@ -481,12 +636,16 @@ export class SieveWorkerCore {
                         }
 
                         // Build persisted keywords directly from columnar slices without JSON.parse
+                        await yieldToEventLoop();
                         const dec = new TextDecoder();
                         const now = Date.now();
                         const targetCPA = command.targetCPA ?? 50;
                         extractedKeywords = [];
 
                         for (let i = 0; i < rowCount; i++) {
+                          if (i > 0 && i % 1000 === 0) {
+                            await yieldToEventLoop();
+                          }
                           const q = dec.decode(
                             queryData.subarray(queryOffsets[i], queryOffsets[i + 1])
                           );
@@ -1170,7 +1329,9 @@ if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'functio
   const core = new SieveWorkerCore();
   self.addEventListener('message', async (e: MessageEvent<WorkerCommand>) => {
     try {
-      const res = await core.handleCommand(e.data);
+      const res = await core.handleCommand(e.data, (prog) => {
+        (self as any).postMessage(prog);
+      });
       (self as any).postMessage(res);
     } catch (err: any) {
       (self as any).postMessage({

@@ -34,3 +34,15 @@ body {
   background: #3f3f46;
 }
 
+/* Hardware Acceleration Hints for Paint Bottlenecks (Steve Souders Invariants) */
+.virtual-grid-viewport {
+  will-change: transform;
+  transform: translateZ(0);
+  contain: content;
+}
+
+[data-testid="analytical-drawer"] > div:last-child,
+[data-testid="power-query-drawer"] > div:last-child {
+  will-change: transform;
+  transform: translateZ(0);
+}

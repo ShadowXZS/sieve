@@ -1,8 +1,12 @@
 /**
- * Phase 14: Local Cryptographic Zero-Leak Attestation Suite
+ * Local Cryptographic Zero-Leak Attestation Suite
+ *
+ * Operating Principles:
+ * - Titus Winters et al. (SE at Google): Cryptographic invariant testing, air-gap verification
+ * - Security Contracts: 0 bytes transmitted, tamper detection, SHA-256 verification
  *
  * Verifies:
- * 1. PrivacyMonitor enforces 0 bytes egress across fetch, XMLHttpRequest, sendBeacon, and WebSocket.
+ * 1. PrivacyMonitor enforces 0 bytes egress across fetch, XMLHttpRequest, and sendBeacon.
  * 2. Deterministic generation of ZeroLeakAttestation with strictly 0 bytes transmitted.
  * 3. Cryptographic Web Crypto SHA-256 verification of the zero-leak attestation certificate.
  * 4. Tamper detection: Any alteration of claims, timestamps, or bytes breaks verification.
@@ -21,7 +25,7 @@ import {
   type ZeroLeakAttestation,
 } from '../../src/crypto/privacy_monitor.ts';
 
-describe('Phase 14: Local Cryptographic Zero-Leak Attestation', () => {
+describe('Local Cryptographic Zero-Leak Attestation', () => {
   test('Outbound Byte Invariant: PrivacyMonitor strictly enforces 0 bytes egress during audit', async () => {
     const monitor = new PrivacyMonitor();
     monitor.start();
@@ -43,7 +47,6 @@ describe('Phase 14: Local Cryptographic Zero-Leak Attestation', () => {
         'Unauthorized outbound network call must be blocked'
       );
 
-      // Verify that blocked request did NOT increment outbound bytes transmitted
       assert.strictEqual(
         monitor.getOutboundByteCount(),
         0,
@@ -94,16 +97,18 @@ describe('Phase 14: Local Cryptographic Zero-Leak Attestation', () => {
     monitor.start();
 
     try {
-      const attestation = await generateZeroLeakAttestation({
-        sessionId: 'session_audit_alpha',
-        datasetRecordCount: 45000,
-        totalWasteRecovered: 12500.5,
-        exclusionsCount: 850,
-        piiTokensRedacted: 14,
-        piiScrubbingApplied: true,
-      }, monitor);
+      const attestation = await generateZeroLeakAttestation(
+        {
+          sessionId: 'session_audit_alpha',
+          datasetRecordCount: 45000,
+          totalWasteRecovered: 12500.5,
+          exclusionsCount: 850,
+          piiTokensRedacted: 14,
+          piiScrubbingApplied: true,
+        },
+        monitor
+      );
 
-      // Invariant assertions
       assert.strictEqual(attestation.status, 'VERIFIED_ZERO_LEAK');
       assert.strictEqual(attestation.egress.bytesTransmitted, 0, 'Bytes transmitted must be exactly 0');
       assert.strictEqual(attestation.egress.packetsDispatched, 0, 'Packets dispatched must be exactly 0');
@@ -114,7 +119,6 @@ describe('Phase 14: Local Cryptographic Zero-Leak Attestation', () => {
       assert.strictEqual(typeof attestation.attestationHash, 'string');
       assert.strictEqual(attestation.attestationHash.length, 64, 'Attestation hash must be 64-hex SHA-256');
 
-      // Verify attestation cryptographically
       const verification = await verifyZeroLeakAttestation(attestation);
       assert.strictEqual(verification.isValid, true, 'Synthesized attestation must pass cryptographic verification');
     } finally {
@@ -161,18 +165,19 @@ describe('Phase 14: Local Cryptographic Zero-Leak Attestation', () => {
 
   test('Rejection on Outbound Leak: Monitor rejects attestation if any unauthorized outbound bytes leaked', async () => {
     const monitor = new PrivacyMonitor();
-    // Simulate an unauthorized byte leak in the monitor state
     (monitor as any).outboundBytesTransmitted = 128;
 
     await assert.rejects(
       async () => {
-        await generateZeroLeakAttestation({
-          sessionId: 'session_leak_detected',
-        }, monitor);
+        await generateZeroLeakAttestation(
+          {
+            sessionId: 'session_leak_detected',
+          },
+          monitor
+        );
       },
       /Zero-Leak Attestation rejected: 128 outbound bytes were detected leaving the machine/i,
       'Must reject attestation when outbound byte count > 0'
     );
   });
 });
-

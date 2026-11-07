@@ -175,6 +175,7 @@ export interface PersistedNegativeKeyword {
 export type WorkerCommandType =
   | 'INIT_WASM'
   | 'INGEST_CSV_CHUNK'
+  | 'INGEST_FILE'
   | 'DETECT_PLATFORM_SCHEMA'
   | 'EXPORT_NGRAM_METRICS'
   | 'GET_REPORTING_GAP'
@@ -198,6 +199,7 @@ export type WorkerCommandType =
 export type WorkerEventType =
   | 'INIT_WASM_SUCCESS'
   | 'INGEST_CHUNK_PROGRESS'
+  | 'INGEST_PROGRESS'
   | 'INGEST_CHUNK_COMPLETE'
   | 'DETECT_PLATFORM_SCHEMA_RESULT'
   | 'EXPORT_NGRAM_METRICS_RESULT'
@@ -234,6 +236,19 @@ export interface IngestCsvChunkCommand {
   /** Zero-copy transferred chunk byte buffer */
   chunkBuffer: ArrayBuffer;
   isFinal: boolean;
+  targetCPA?: number;
+}
+
+export interface IngestPayload {
+  fileBuffer: ArrayBuffer;
+  fileSize: number;
+  fileName: string;
+}
+
+export interface IngestFileCommand {
+  type: 'INGEST_FILE';
+  requestId: string;
+  payload: IngestPayload;
   targetCPA?: number;
 }
 
@@ -339,6 +354,7 @@ export interface UnlinkTablesCommand {
 export type WorkerCommand =
   | InitWasmCommand
   | IngestCsvChunkCommand
+  | IngestFileCommand
   | DetectPlatformSchemaCommand
   | ExportNGramMetricsCommand
   | GetReportingGapCommand
@@ -373,6 +389,16 @@ export interface InitWasmSuccessResponse extends BaseWorkerResponse {
 export interface IngestChunkProgressResponse extends BaseWorkerResponse {
   type: 'INGEST_CHUNK_PROGRESS';
   bytesConsumed: number;
+  bytesProcessed?: number;
+  estimatedRows?: number;
+}
+
+export interface IngestProgressResponse extends BaseWorkerResponse {
+  type: 'INGEST_PROGRESS';
+  bytesProcessed: number;
+  estimatedRows: number;
+  totalBytes: number;
+  percent: number;
 }
 
 export interface IngestChunkCompleteResponse extends BaseWorkerResponse {
@@ -490,6 +516,7 @@ export class WorkerExecutionError extends Error {
 export type WorkerResponse =
   | InitWasmSuccessResponse
   | IngestChunkProgressResponse
+  | IngestProgressResponse
   | IngestChunkCompleteResponse
   | DetectPlatformSchemaResponse
   | ExportNGramMetricsResponse
@@ -528,6 +555,8 @@ export function getTransferables(command: WorkerCommand): Transferable[] {
       return command.wasmBuffer ? [command.wasmBuffer] : [];
     case 'INGEST_CSV_CHUNK':
       return [command.chunkBuffer];
+    case 'INGEST_FILE':
+      return command.payload?.fileBuffer ? [command.payload.fileBuffer] : [];
     case 'DETECT_PLATFORM_SCHEMA':
       return [command.headerBuffer];
     default:

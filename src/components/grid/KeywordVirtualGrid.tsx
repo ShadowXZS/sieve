@@ -3,7 +3,7 @@
  *
  * Employs @tanstack/react-virtual to sustain 60/120 FPS rendering across 250,000+
  * computed exclusion records. Bounded DOM node ceiling under 120 elements during
- * continuous scrolling.
+ * continuous scrolling with strict CSS layout containment and fixed row heights.
  */
 
 import React, { useRef, useState, useMemo } from 'react';
@@ -14,12 +14,20 @@ import { CollisionBadge } from '../badges/CollisionBadge.tsx';
 import { ExportDefModal } from '../export/ExportDefModal.tsx';
 import { ReportConfigModal } from '../reports/ReportConfigModal.tsx';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
-import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
 import { Search, Copy, Check, Download, FileText } from 'lucide-react';
 
 export interface KeywordVirtualGridProps {
   className?: string;
 }
+
+const ROW_HEIGHT = 48;
+
+const getMatchTypeStyle = (matchType: 'broad' | 'phrase' | 'exact'): string =>
+  matchType === 'exact'
+    ? 'bg-purple-950/60 text-purple-300 border-purple-800/50'
+    : matchType === 'phrase'
+    ? 'bg-blue-950/60 text-blue-300 border-blue-800/50'
+    : 'bg-zinc-800/80 text-zinc-300 border-zinc-700/60';
 
 export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ className = '' }) => {
   const { filteredKeywords, selectedKeyword, setSelectedKeyword, currency } = useSieveStore();
@@ -43,7 +51,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
   const rowVirtualizer = useVirtualizer({
     count: displayedItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 48,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 10,
     initialRect: { width: 1000, height: 600 },
   });
@@ -57,22 +65,11 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
     setTimeout(() => setCopiedHash(null), 1500);
   };
 
-  const getMatchTypeStyle = (matchType: 'broad' | 'phrase' | 'exact') => {
-    switch (matchType) {
-      case 'exact':
-        return 'bg-purple-950/60 text-purple-300 border-purple-800/50';
-      case 'phrase':
-        return 'bg-blue-950/60 text-blue-300 border-blue-800/50';
-      case 'broad':
-      default:
-        return 'bg-zinc-800/80 text-zinc-300 border-zinc-700/60';
-    }
-  };
-
   return (
     <div
       data-testid="virtual-grid-container"
-      className={`flex flex-col h-full w-full rounded-xl bg-zinc-900/60 border border-zinc-800 shadow-xl overflow-hidden backdrop-blur-sm ${className}`}
+      className={`virtual-grid-container flex flex-col h-full w-full rounded-xl bg-zinc-900/60 border border-zinc-800 shadow-xl overflow-hidden backdrop-blur-sm ${className}`}
+      style={{ contain: 'content' }}
     >
       {/* Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-zinc-800 bg-zinc-950/40">
@@ -88,8 +85,7 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
             />
           </div>
           <span className="text-xs text-zinc-400 font-mono tabular-nums">
-            {displayedItems.length.toLocaleString()} of {filteredKeywords.length.toLocaleString()}{' '}
-            qualifying rules
+            {displayedItems.length.toLocaleString()} of {filteredKeywords.length.toLocaleString()} qualifying rules
           </span>
         </div>
 
@@ -129,25 +125,23 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
         role="region"
         aria-label="Virtualized Keyword Grid"
         tabIndex={0}
-        className="flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
-        style={{ minHeight: '400px' }}
+        className="virtual-grid-viewport flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
+        style={{
+          minHeight: '400px',
+          contain: 'content',
+          willChange: 'transform',
+          transform: 'translateZ(0)',
+        }}
       >
         {displayedItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-zinc-500 text-xs">
             No keywords match the current threshold or search criteria.
           </div>
         ) : (
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
+          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
             {virtualItems.map((virtualRow) => {
               const kw = displayedItems[virtualRow.index];
               if (!kw) return null;
-
               const isSelected = selectedKeyword?.sha256Hash === kw.sha256Hash;
               const isCopied = copiedHash === kw.sha256Hash;
 
@@ -165,20 +159,18 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                     }
                   }}
                   className={`h-12 grid grid-cols-12 gap-2 items-center px-4 text-xs font-mono transition-colors duration-150 ease-out cursor-pointer border-b border-zinc-800/40 select-text outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/70 focus-visible:ring-inset ${
-                    isSelected
-                      ? 'bg-emerald-950/30 text-emerald-200'
-                      : 'hover:bg-zinc-850/60 text-zinc-300'
+                    isSelected ? 'bg-emerald-950/30 text-emerald-200' : 'hover:bg-zinc-850/60 text-zinc-300'
                   }`}
                   style={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     width: '100%',
-                    height: `${virtualRow.size}px`,
+                    height: `${ROW_HEIGHT}px`,
                     transform: `translateY(${virtualRow.start}px)`,
+                    contain: 'strict',
                   }}
                 >
-                  {/* Formatted Rule / Keyword */}
                   <div className="col-span-4 flex items-center gap-2 overflow-hidden">
                     <button
                       type="button"
@@ -186,29 +178,19 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                       onClick={(e) => handleCopyRule(kw.formattedRule || kw.keyword, kw.sha256Hash, e)}
                       className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all duration-150 ease-out active:scale-90 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 shrink-0"
                     >
-                      {isCopied ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                     <span className="truncate font-semibold text-zinc-100" title={kw.formattedRule}>
                       {kw.formattedRule}
                     </span>
                   </div>
 
-                  {/* Match Type */}
                   <div className="col-span-2">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase border transition-colors duration-150 ease-out ${getMatchTypeStyle(
-                        kw.matchType
-                      )}`}
-                    >
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase border transition-colors duration-150 ease-out ${getMatchTypeStyle(kw.matchType)}`}>
                       {kw.matchType}
                     </span>
                   </div>
 
-                  {/* Confidence Score */}
                   <div className="col-span-2 flex items-center gap-1.5">
                     <div className="w-12 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                       <div
@@ -221,12 +203,10 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
                     </span>
                   </div>
 
-                  {/* Marginal Waste */}
                   <div className="col-span-2 font-mono tabular-nums text-rose-400 font-semibold">
                     {formatCurrency(kw.marginalWaste || 0, currency)}
                   </div>
 
-                  {/* Conflict Guard Badge */}
                   <div className="col-span-2 flex justify-end">
                     <CollisionBadge keyword={kw} />
                   </div>
@@ -237,14 +217,12 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
         )}
       </div>
 
-      {/* Multi-Platform Export Modal */}
       <ExportDefModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         keywords={displayedItems}
       />
 
-      {/* Vector PDF Report Modal */}
       <ReportConfigModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
@@ -252,4 +230,3 @@ export const KeywordVirtualGrid: React.FC<KeywordVirtualGridProps> = ({ classNam
     </div>
   );
 };
-

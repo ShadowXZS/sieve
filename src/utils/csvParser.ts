@@ -360,3 +360,65 @@ export function parseCsvTextToRecords(
 
   return { records, currency };
 }
+
+/**
+ * Splits an ArrayBuffer into chunk ArrayBuffers along newline boundaries.
+ * Guarantees zero split rows across chunk boundaries.
+ * Each chunk is an ArrayBuffer slice ready for zero-copy Transferable dispatch.
+ */
+export function splitBufferIntoChunks(
+  buffer: ArrayBuffer,
+  chunkSize: number = 16 * 1024 * 1024
+): ArrayBuffer[] {
+  const totalLength = buffer.byteLength;
+  if (totalLength === 0) return [];
+  if (totalLength <= chunkSize) return [buffer];
+
+  const u8 = new Uint8Array(buffer);
+  const chunks: ArrayBuffer[] = [];
+  let currentStart = 0;
+
+  while (currentStart < totalLength) {
+    let candidateEnd = Math.min(currentStart + chunkSize, totalLength);
+
+    if (candidateEnd < totalLength) {
+      let newlinePos = -1;
+      const searchLimit = Math.min(candidateEnd + 65536, totalLength);
+      for (let i = candidateEnd; i < searchLimit; i++) {
+        if (u8[i] === 0x0a) {
+          newlinePos = i + 1;
+          break;
+        }
+      }
+      if (newlinePos === -1) {
+        for (let i = candidateEnd; i > currentStart; i--) {
+          if (u8[i] === 0x0a) {
+            newlinePos = i + 1;
+            break;
+          }
+        }
+      }
+      if (newlinePos > currentStart) {
+        candidateEnd = newlinePos;
+      }
+    }
+
+    chunks.push(buffer.slice(currentStart, candidateEnd));
+    currentStart = candidateEnd;
+  }
+
+  return chunks;
+}
+
+/**
+ * Streaming generator that yields chunk ArrayBuffers along newline boundaries.
+ */
+export function* streamBufferChunks(
+  buffer: ArrayBuffer,
+  chunkSize: number = 16 * 1024 * 1024
+): Generator<ArrayBuffer, void, unknown> {
+  const chunks = splitBufferIntoChunks(buffer, chunkSize);
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}

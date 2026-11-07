@@ -1,5 +1,5 @@
 /**
- * Phase 14: Privacy Attestation & Release Hardening UI Component Tests
+ * Privacy Badge Modal & Zero-Leak Attestation UI Component Test Suite
  *
  * Verifies:
  * 1. BrandHeader renders the Zero-Leak Attestation badge with 0 B readout.
@@ -76,7 +76,7 @@ const SAMPLE_KEYWORDS_WITH_PII: PersistedNegativeKeyword[] = [
   },
 ];
 
-describe('Phase 14: Privacy Attestation & Release Hardening UI', () => {
+describe('Privacy Attestation & Release Hardening UI', () => {
   test('BrandHeader: Renders Zero-Leak Attestation badge with 0 B readout and triggers onOpenPrivacyModal', () => {
     cleanup();
     let modalOpened = false;

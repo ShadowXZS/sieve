@@ -7,6 +7,7 @@
  * - Accessible Focus Rings & Ring-Offsets
  * - Dark-mode Contrast Surfaces
  * - Tabular Numerals & Monospace Hierarchy
+ * - CSS Containment & Hardware Acceleration (Steve Souders Invariants)
  */
 
 :root {
@@ -72,3 +73,26 @@
   }
 }
 
+/* Hardware Acceleration Hints (Drawers and Virtual Grid Viewport) */
+.hardware-accelerated,
+.virtual-grid-viewport,
+.drawer-panel,
+[data-testid="analytical-drawer"] > div:last-child,
+[data-testid="power-query-drawer"] > div:last-child {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* CSS Layout & Paint Containment Boundaries (Steve Souders Invariants) */
+.contain-strict,
+[data-testid="virtual-grid-row"] {
+  contain: strict;
+}
+
+.contain-content,
+.virtual-grid-viewport,
+[data-testid="virtual-grid-container"],
+[data-testid="threshold-controls"],
+[data-testid^="executive-card-"] {
+  contain: content;
+}

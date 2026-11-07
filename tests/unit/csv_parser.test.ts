@@ -1,3 +1,17 @@
+/**
+ * CSV Parser & Ingestion Normalization Unit Tests
+ *
+ * Operating Principles:
+ * - Martin Fowler: Refactoring Test Code (Descriptive Behavioral Intent)
+ * - Titus Winters et al. (SE at Google): Multi-platform schema robustness
+ *
+ * Verifies:
+ * 1. Normalized column alias detection across Google Ads, Amazon PPC, and Microsoft Ads.
+ * 2. Multi-currency and numeric stripping ($ ₹ € ¥ £ and commas).
+ * 3. Store lifecycle: PARSE_SUCCESS hydration without threshold zeroing and clearDataset reset.
+ * 4. End-to-end text CSV parsing with marginal waste calculation.
+ */
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { useSieveStore } from '../../src/state/useSieveStore.ts';
@@ -7,7 +21,7 @@ import {
   parseCsvTextToRecords,
 } from '../../src/utils/csvParser.ts';
 
-test('Action 4: Normalized Column Aliases & Numeric Stripping', () => {
+test('Column Mapping & Numeric Sanitization: Normalizes platform aliases and strips currency glyphs', () => {
   // 1. Google Ads format
   const googleHeaders = ['Search term', 'Clicks', 'Cost', 'Conversions', 'Campaign'];
   const googleMapping = detectColumnMapping(googleHeaders);
@@ -41,13 +55,12 @@ test('Action 4: Normalized Column Aliases & Numeric Stripping', () => {
   assert.strictEqual(cleanNumeric('1,500'), 1500);
 });
 
-test('Action 3: useSieveStore PARSE_SUCCESS & clearDataset Lifecycle', () => {
+test('Store Ingestion Lifecycle: PARSE_SUCCESS populates records without threshold zeroing and clearDataset resets cleanly', () => {
   useSieveStore.getState().reset();
   const initial = useSieveStore.getState();
   assert.strictEqual(initial.fileLoaded, false);
   assert.strictEqual(initial.records.length, 0);
 
-  // Simulate PARSE_SUCCESS event
   const mockPayload = {
     records: [
       {
@@ -57,7 +70,7 @@ test('Action 3: useSieveStore PARSE_SUCCESS & clearDataset Lifecycle', () => {
         clicks: 50,
         cost: 250,
         conversions: 0,
-        confidenceScore: 0.65, // Below default 0.8 threshold!
+        confidenceScore: 0.65,
         hasCollision: false,
         createdAt: Date.now(),
       },
@@ -81,7 +94,6 @@ test('Action 3: useSieveStore PARSE_SUCCESS & clearDataset Lifecycle', () => {
   assert.strictEqual(loadedState.fileLoaded, true, 'fileLoaded must be true');
   assert.strictEqual(loadedState.isLoading, false, 'isLoading must be false');
   assert.strictEqual(loadedState.records.length, 1, 'records must be populated');
-  // Crucial requirement: filteredRecords = records to prevent threshold zeroing
   assert.strictEqual(
     loadedState.filteredRecords.length,
     1,
@@ -98,7 +110,7 @@ test('Action 3: useSieveStore PARSE_SUCCESS & clearDataset Lifecycle', () => {
   assert.strictEqual(clearedState.keywords.length, 0, 'keywords must be empty');
 });
 
-test('End-to-End CSV Parsing with multi-platform currencies and aliases', () => {
+test('End-to-End CSV Parsing: Parses multi-platform format with currencies and computes marginal waste', () => {
   const amazonCsv = `Customer Search Term,Clicks,Spend,7 Day Total Orders (#)
 "amazon wireless earbuds",120,"$1,450.50",0
 "noise cancelling headphones",35,"$420.00",2`;
@@ -121,4 +133,3 @@ test('End-to-End CSV Parsing with multi-platform currencies and aliases', () => 
   assert.strictEqual(r2.conversions, 2);
   assert.strictEqual(r2.marginalWaste, 320); // 420 - 2 * 50 = 320
 });
-

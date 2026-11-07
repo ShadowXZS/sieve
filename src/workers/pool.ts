@@ -27,6 +27,7 @@ interface QueuedTask {
   targetWorkerId?: number;
   resolve: (value: WorkerResponse) => void;
   reject: (reason?: unknown) => void;
+  onProgress?: (progress: WorkerResponse) => void;
 }
 
 class WorkerSlot {
@@ -37,6 +38,7 @@ class WorkerSlot {
   private port2: MessagePort;
   private currentReject: ((reason?: unknown) => void) | null = null;
   private currentResolve: ((value: WorkerResponse) => void) | null = null;
+  private currentProgress: ((progress: WorkerResponse) => void) | null = null;
   public terminated: boolean = false;
 
   constructor(id: number) {
@@ -49,7 +51,10 @@ class WorkerSlot {
 
     this.port2.onmessage = async (e: MessageEvent<WorkerCommand>) => {
       try {
-        const res = await this.core.handleCommand(e.data);
+        const res = await this.core.handleCommand(e.data, (prog) => {
+          prog.workerId = this.id;
+          this.port2.postMessage(prog);
+        });
         res.workerId = this.id;
         const transferables = (res as { rawBuffer?: ArrayBuffer }).rawBuffer
           ? [(res as { rawBuffer: ArrayBuffer }).rawBuffer]
@@ -71,10 +76,17 @@ class WorkerSlot {
     this.port1.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const res = e.data;
       res.workerId = this.id;
+
+      if (res.type === 'INGEST_PROGRESS' || res.type === 'INGEST_CHUNK_PROGRESS') {
+        this.currentProgress?.(res);
+        return;
+      }
+
       const resolve = this.currentResolve;
       const reject = this.currentReject;
       this.currentResolve = null;
       this.currentReject = null;
+      this.currentProgress = null;
 
       if (res.type === 'WORKER_ERROR') {
         const err = new WorkerExecutionError(res.error, res.code, this.id);
@@ -93,17 +105,25 @@ class WorkerSlot {
     command: WorkerCommand,
     transferables: Transferable[],
     resolve: (value: WorkerResponse) => void,
-    reject: (reason?: unknown) => void
+    reject: (reason?: unknown) => void,
+    onProgress?: (progress: WorkerResponse) => void
   ) {
     this.busy = true;
     this.currentResolve = resolve;
     this.currentReject = reject;
+    this.currentProgress = onProgress ?? null;
     this.port1.postMessage(command, transferables);
   }
 
   public terminate(): void {
     if (this.terminated) return;
     this.terminated = true;
+    if (this.currentReject) {
+      this.currentReject(new Error(`WorkerSlot ${this.id} terminated`));
+      this.currentReject = null;
+      this.currentResolve = null;
+      this.currentProgress = null;
+    }
     this.port1.close();
     this.port2.close();
     this.core.cleanup();
@@ -143,12 +163,20 @@ export class SieveWorkerPool {
     return this.taskQueue.length;
   }
 
+  public async init(): Promise<void> {
+    await Promise.all(this.workers.map((w) => w.init()));
+  }
+
   public getAvailableWorkerId(): number {
     const idle = this.findNextAvailableWorker();
     return idle ? idle.id : this.roundRobinIdx;
   }
 
-  public async execute(command: WorkerCommand, targetWorkerId?: number): Promise<WorkerResponse> {
+  public async execute(
+    command: WorkerCommand,
+    targetWorkerId?: number,
+    onProgress?: (progress: WorkerResponse) => void
+  ): Promise<WorkerResponse> {
     if (this.terminated) {
       throw new Error('SieveWorkerPool has been terminated');
     }
@@ -156,7 +184,7 @@ export class SieveWorkerPool {
     const transferables = getTransferables(command);
 
     return new Promise<WorkerResponse>((resolve, reject) => {
-      const task: QueuedTask = { command, transferables, targetWorkerId, resolve, reject };
+      const task: QueuedTask = { command, transferables, targetWorkerId, onProgress, resolve, reject };
 
       if (targetWorkerId !== undefined && targetWorkerId >= 0 && targetWorkerId < this.workers.length) {
         const targetWorker = this.workers[targetWorkerId];
@@ -175,6 +203,60 @@ export class SieveWorkerPool {
         }
       }
     });
+  }
+
+  public async executeIngestFile(
+    taskId: string,
+    fileBuffer: ArrayBuffer,
+    fileName: string = 'dataset.csv',
+    workerId?: number,
+    targetCPA?: number,
+    onProgress?: (progress: import('./protocol.ts').IngestProgressResponse) => void
+  ): Promise<{
+    statusCode: number;
+    workerId: number;
+    bytesConsumed?: number;
+    keywords?: import('./protocol.ts').PersistedNegativeKeyword[];
+  }> {
+    const fileSize = fileBuffer.byteLength;
+    const command: WorkerCommand = {
+      type: 'INGEST_FILE',
+      requestId: taskId,
+      payload: {
+        fileBuffer,
+        fileSize,
+        fileName,
+      },
+      targetCPA,
+    };
+
+    const res = await this.execute(
+      command,
+      workerId,
+      onProgress
+        ? (p) => {
+            if (p.type === 'INGEST_PROGRESS') {
+              onProgress(p as import('./protocol.ts').IngestProgressResponse);
+            }
+          }
+        : undefined
+    );
+
+    if (res.type === 'INGEST_CHUNK_COMPLETE') {
+      const completeRes = res as IngestChunkCompleteResponse;
+      this.lastActiveWorkerId = res.workerId ?? workerId ?? 0;
+      return {
+        statusCode: completeRes.statusCode,
+        workerId: res.workerId ?? 0,
+        bytesConsumed: completeRes.bytesConsumed,
+        keywords: completeRes.keywords,
+      };
+    } else if (res.type === 'WORKER_ERROR') {
+      const errorPayload = res as WorkerErrorResponse;
+      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
+    } else {
+      throw new Error(`Unexpected worker response type: ${res.type}`);
+    }
   }
 
   public async executeIngestion(
@@ -332,7 +414,8 @@ export class SieveWorkerPool {
       (err: unknown) => {
         task.reject(err);
         this.onWorkerTaskDone(worker);
-      }
+      },
+      task.onProgress
     );
   }
 
