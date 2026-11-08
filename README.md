@@ -22,9 +22,11 @@ I am stepping away from Sieve entirely. I am keeping this code as a personal pos
 
 ### 1. The Illusion of Delegation
 
-Apart from formatting text or generating boilerplate, delegating code to an AI is not software engineering. It took away the entire joy of problem-solving. Most of the development time wasn't spent engineering; it was spent watching YouTube videos in another tab while the model spun up thousands of lines of spaghetti code, burying real logic beneath layers of brittle patches.
+Apart from formatting markdown tables or drafting regex boilerplate, delegating actual architecture to an LLM is not software engineering. It turned out to be an exercise in watching YouTube in another tab while an automated script cheerfully generated four thousand lines of technical debt.
 
-AI builders have nailed the visual layer—it is remarkably good at generating stunning UI designs, polished dark-mode themes, and crisp aesthetic layouts. But a beautiful interface is completely worthless if the engine underneath is unusable, unpredictable code.
+Prompt-driven development here felt like commissioning a blindfolded painter: the model has read every book on art theory, knows every classical brush technique, and talks endlessly about composition. But the moment the brush touches the canvas, it cannot actually see where the paint lands. When the pigment bleeds across the frame (a memory leak) or runs straight off the canvas onto the floor (a call stack overflow), it simply smiles and keeps applying strokes with 100% statistical confidence until you tap it on the shoulder to describe the disaster.
+
+AI builders have genuinely mastered the visual exterior—it generates slick dark-mode cards, glowing badges, and immaculate button borders. But a beautiful interface is completely useless when the engine underneath is pure architectural spaghetti. 
 
 That is not the kind of software engineer I dream of becoming.
 
