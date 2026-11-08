@@ -97,8 +97,13 @@ Because media buyers handle confidential financial figures, client cost structur
 
 ---
 
-## 📦 Project Status: Concluded & Complete
+## 📌 Project Status: Feature-Complete & User-Driven
 
-Sieve is a completed open-source application. Every planned architectural capability—from 600 MB chunked streaming and multi-currency parsing to Bayesian confidence scoring, conflict protection, DuckDB SQL querying, and vector PDF audit generation—has been implemented and verified.
+Sieve's core engine is stable, feature-complete, and ready for production audits. 
+
+To ensure further engineering is aligned with real-world agency workflows, **active feature development is currently guided entirely by user feedback.** 
+
+- If you run heavy audits and hit an unmapped CSV header, missing metric, or edge case: [Open an Issue](link) or ping me directly.
+- Feature requests and custom agency script integrations will be prioritized based on real user audits.
 
 The software is provided free of artificial limits, tracking, or commercial gating under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
