@@ -10,6 +10,7 @@ import { UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useSieveStore } from '../../state/useSieveStore.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
 import { parseCsvTextToRecords } from '../../utils/csvParser.ts';
+import { ArchivalNoticeBanner } from './ArchivalNoticeBanner.tsx';
 
 export interface FileDropzoneProps {
   workerPool?: SieveWorkerPool;
@@ -174,6 +175,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
 
   return (
     <div className={`w-full ${className}`}>
+      <ArchivalNoticeBanner className="mb-6" />
       <div
         data-testid="file-dropzone"
         onDragOver={handleDragOver}

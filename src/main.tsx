@@ -26,6 +26,7 @@ export * from "./crypto/hash.ts";
 export * from "./utils/logger.ts";
 export * from "./config/env.ts";
 export * from "./components/privacy/PrivacyModal.tsx";
+export * from "./components/dropzone/ArchivalNoticeBanner.tsx";
 export * from "./components/dropzone/FileDropzone.tsx";
 export * from "./components/kpi/SummaryDashboard.tsx";
 export * from "./components/dashboard/ExecutiveDashboard.tsx";

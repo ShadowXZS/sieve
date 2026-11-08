@@ -8,6 +8,7 @@
  * 4. Multi-file Processing: Processes dropped CSV files and handles worker ingestion dispatch.
  * 5. Validation: Gracefully rejects non-CSV files with supported format warnings.
  * 6. Throughput Guarantee: Renders 600MB worker processing copy.
+ * 7. Archival Notice Banner: Renders un-dismissible disclaimer card directly above dropzone.
  */
 
 import { test, describe } from 'node:test';
@@ -229,5 +230,46 @@ describe('FileDropzone & CSV Ingestion Flow', () => {
     assert.strictEqual(kpi.totalWaste, 400.0);
     assert.strictEqual(kpi.collisionCount, 1);
     assert.strictEqual(kpi.exactLockedCount, 1);
+  });
+
+  test('Archival Disclaimer Banner: Renders permanent, un-dismissible warning card directly above dropzone', () => {
+    cleanup();
+    const { container } = render(<FileDropzone />);
+
+    const banner = container.querySelector('[data-testid="archival-notice-banner"]');
+    assert.ok(banner, 'Archival notice banner must be mounted');
+
+    const dropzone = container.querySelector('[data-testid="file-dropzone"]');
+    assert.ok(dropzone, 'Dropzone element must be mounted');
+
+    // Verify banner is positioned directly before the dropzone in the DOM
+    assert.ok(
+      banner.compareDocumentPosition(dropzone) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'Dropzone must strictly follow archival notice banner in DOM order'
+    );
+
+    // Verify Header copy
+    const header = screen.getByText('⚠️ CRITICAL NOTICE: PROJECT CONCLUDED / ARCHIVAL STATE');
+    assert.ok(header, 'Header copy must match exactly');
+
+    // Verify Subhead copy
+    const subhead = screen.getByText('DO NOT USE OUTPUTS FOR LIVE FINANCIAL DECISIONS OR PRODUCTION PPC CAMPAIGNS.');
+    assert.ok(subhead, 'Subhead copy must match exactly');
+
+    // Verify Body copy
+    const body = screen.getByText(
+      'While the interface and core pipelines demonstrate what is possible with client-side WebAssembly, the calculations, reconciliations, and outputs from this tool are not verified for production accuracy. Use this repository strictly as an educational case study and architectural reference for in-browser data processing.'
+    );
+    assert.ok(body, 'Body copy must match exactly');
+
+    // Verify styling rules: uses amber Tailwind classes
+    const classList = banner.className;
+    assert.ok(classList.includes('border-amber-500/40'), 'Must use border-amber-500/40');
+    assert.ok(classList.includes('bg-amber-950/20'), 'Must use bg-amber-950/20');
+    assert.ok(classList.includes('text-amber-200'), 'Must use text-amber-200');
+
+    // Verify un-dismissible: no close or dismiss button exists inside the banner
+    const closeButtons = banner.querySelectorAll('button');
+    assert.strictEqual(closeButtons.length, 0, 'Archival notice banner must be permanent and un-dismissible');
   });
 });

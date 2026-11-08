@@ -1,109 +1,102 @@
-**Website:** : https://sieveql.vercel.app/
+
+# 🔍 SIEVE: Client-Side PPC Search Term Leakage Hunter
+
+> **⚠️ CRITICAL NOTICE: PROJECT CONCLUDED / ARCHIVAL STATE**
+> **DO NOT USE OUTPUTS FOR LIVE FINANCIAL DECISIONS OR PRODUCTION PPC CAMPAIGNS.**
+> While the interface and core pipelines demonstrate what is possible with client-side WebAssembly, **the calculations, reconciliations, and outputs from this tool are not verified for production accuracy**. Use this repository strictly as an educational case study and architectural reference for in-browser data processing.
 
 ---
 
-# 🔍 SIEVE: Multi-Channel PPC Search Term Leakage Hunter
-
-### Universal Client-Side PPC Audit Engine & Waste Elimination Architecture
-
-**Version:** 1.0.0 (Project Completed & Concluded)
-
-**License:** GNU Affero General Public License v3.0 (AGPL-3.0)
-
-**Repository:** [https://github.com/ShadowXZS/sieve](https://github.com/ShadowXZS/sieve)
+* **Live Demo:** [sieveql.vercel.app](https://sieveql.vercel.app/)
+* **Repository:** [github.com/ShadowXZS/sieve](https://github.com/ShadowXZS/sieve)
+* **License:** GNU Affero General Public License v3.0 (AGPL-3.0)
+* **Status:** Concluded & Archived (Will Be Converted to Private Repository)
 
 ---
 
-## 🌍 The Story: Why This Project is 100% Free
+## 🛑 Post-Mortem & Developer Reflection: The Reality of "Vibe Coding"
 
-Sieve started during an intense, grueling 16-hour sprint. My original plan was simple: build a specialized, high-utility tool, sell it to support my journey of learning to code, and use modern merchant-of-record platforms to handle payments and billing.
+After putting roughly 32 hours into this project, I ran headfirst into architectural walls that made one thing clear: **prompt-driven development breaks down when building complex, mathematically deterministic software.**
 
-Early on, I ran headfirst into the friction of international merchant verification and cross-border payment compliance. While later research revealed viable merchant-of-record alternatives catering to builders in India (such as **Dodo Payments**), stepping back to evaluate the finished product shifted my perspective entirely:
+I am stepping away from Sieve entirely. I am keeping this code as a personal post-mortem and an enduring reminder of why I will not trust AI systems to build core engineering logic.
 
-I didn’t write every line of this codebase by hand. I orchestrated AI at high velocity—crafting structured meta-prompts, debugging in real time, and steering the compiler. But when the first build was done, I hit a critical reality check: orchestrating AI output fast is not the same as mastering software engineering.
+### 1. The Illusion of Delegation
 
-At first, I thought the project was finished simply because all the features worked. I actually hesitated to touch it, terrified that an AI hallucination would shatter a working application. Then the realization sank in:**if you are afraid to modify or refactor a working system, you haven't mastered it yet.**
+Apart from formatting text or generating boilerplate, delegating code to an AI is not software engineering. It took away the entire joy of problem-solving. Most of the development time wasn't spent engineering; it was spent watching YouTube videos in another tab while the model spun up thousands of lines of spaghetti code, burying real logic beneath layers of brittle patches.
 
-To break through that plateau, I forced myself to tear into the architecture and rebuild it from first principles. In this latest iteration, we eliminated technical debt, locked down strict domain boundaries, tuned the UI for a consistent 60–120 FPS, and overhauled the vector PDF engine to stamp out layout clipping and unformatted math.
+AI builders have nailed the visual layer—it is remarkably good at generating stunning UI designs, polished dark-mode themes, and crisp aesthetic layouts. But a beautiful interface is completely worthless if the engine underneath is unusable, unpredictable code.
 
-Charging for a tool built purely on prompt-driven momentum felt premature. My genuine goal is to learn deep systems engineering, understand memory lifecycles, and build high-performance software that stands on its own architectural merit.
+That is not the kind of software engineer I dream of becoming.
 
-That is why Sieve is completely open, unmonetized, and free.
+### 2. Prompting English Is Not Systems Engineering
 
-*That said—if this tool saves your agency real money and you actually **want** to pay me, let’s talk. Tell me what feature or integration your workflow is missing, name the price you're willing to pay for it, and I’ll build it.*
+Orchestrating LLMs at high velocity creates a convincing illusion of productivity. You prompt, the compiler passes, and features appear. But relying on an LLM to interpret context, state invariants, and data lifecycles without a human verifying every byte is not engineering.
 
-If Sieve saves your ad spend, a **Star ⭐️ on GitHub** is the best currency to support the journey.
+AI is not "smart." It is simply exceptional at pretending to work while generating more debugging work behind the scenes.
 
----
+### 3. The "Whack-A-Mole" Architectural Trap
 
-## 📋 Executive Summary
+As an application matures toward production, AI-driven development tends to collapse under system complexity:
 
-Digital advertising across Google Ads, Amazon PPC, and Microsoft Advertising has shifted toward automated bidding algorithms and broad-match matching models. While automation scales ad distribution, it frequently allocates significant marketing capital to zero-intent search queries, irrelevant keyword variations, and automated campaign cannibalization.
+* Fixing an out-of-memory error silently starves a downstream state store.
+* Fixing the store creates race conditions in the Web Worker.
+* Fixing the worker breaks the calculation layer and mathematical parity.
 
-Historically, identifying and isolating this budget leakage required media buyers to download massive, multi-megabyte Search Term Reports, manually manipulate spreadsheets, write ad-hoc lookup formulas, and risk sharing confidential client spend data with third-party cloud SaaS vendors.
+You end up patching patches until the architecture turns into an unmaintainable maze of localized hotfixes.
 
-**Sieve** is a client-side search term audit and waste-elimination application. Operating on modern WebAssembly and local-first architecture, Sieve ingests up to 600 MB of raw search term data, decomposes queries into constituent n-grams, identifies non-converting click sinks, and formats negative keyword exclusions in under two seconds.
+### 4. The Hard Reality of Distribution
 
-Processing runs entirely inside the user's browser: **no servers, no account logins, no cloud tracking, and zero data leakage**.
+Coming into this, I bought into the common illusion that simply building a functioning product (or what I initially assumed was a good product) would naturally bring users.
 
----
+I quickly realized two truths:
 
-## 🎯 The Strategic Problem: Budget Leakage in Automated PPC
+1. This tool was very far from a truly good, production-grade product.
+2. Even if a product works, **distribution is the entire battle**. Code sitting in a repository or deployed on a domain does nothing on its own without deliberate distribution channels.
 
-Modern PPC campaigns face three structural efficiency challenges:
+### Final Conclusion
 
-1. **The Broad-Match Query Explosion:** Automated campaigns bid on thousands of query variations. While some queries generate revenue, many consume budget without producing conversions.
-2. **The Fragmented Long-Tail Trap:** Thousands of unique search terms receive only 1 or 2 clicks. Individually, these clicks appear negligible ($3 to $5 each); collectively, they often represent 30% to 50% of total account ad spend with zero conversions. Standard spreadsheet filters fail to detect the root terms shared across these fragmented variants.
-3. **The Cannibalization Risk of Negative Keywords:** When media buyers attempt to add negative keywords to stop waste, an overly broad exclusion can accidentally suppress profitable, high-converting search queries, reducing overall account revenue.
+Initially, I blamed my own lack of contextual understanding. But after exhaustively meta-prompting, refactoring, and restructuring the system across multiple iterations, the reality became obvious: AI tools can build fast prototypes, but they do not replace the deliberate, verified systems engineering required for production-grade software.
 
----
-
-## 🏗️ Architectural Pillars: How Sieve Solves This
-
-### 1. In-Browser WebAssembly Compute
-
-Instead of uploading search term files to remote servers, Sieve uses a high-performance Rust WebAssembly engine running on the user's computer. The engine reads file byte streams directly into browser memory, running multi-token n-gram aggregation (unigrams, bigrams, trigrams) across hundreds of thousands of rows in milliseconds.
-
-### 2. Zero-Loss "Safe List" Conflict Guard
-
-Before any term is recommended as a negative keyword, Sieve builds an inverted index of all search queries that have historically generated conversions. If a flagged non-converting token also appears inside a profitable converting phrase, the system protects that pathway. Sieve automatically restricts the negative keyword syntax to exact bracket exclusions (`[exact query]`), preventing search path cannibalization.
-
-### 3. Chronological Operational Workflow
-
-The user interface presents data in a logical, chronological sequence designed for media buyers:
-
-* **Phase 1: Ingestion** — Drag-and-drop search term reports (Google Ads, Amazon PPC, Microsoft Ads) up to 600 MB with automatic dialect, header, and currency detection (`$`, `₹`, `€`, `¥`, `£`).
-* **Phase 2: Threshold Calibration** — Dynamic sliders allow immediate recalculation of minimum spend, maximum conversions, minimum clicks, and target CPA without reprocessing the underlying dataset.
-* **Phase 3: Executive Analytics Dashboard** — A color-coded financial breakdown organizing spend into:
-* **Identified Waste (Rose):** Capital spent on zero-intent queries and severe CPA drag.
-* **Safe-List Protected (Emerald):** Revenue and conversion volume shielded by the conflict guard.
-* **High-Risk Exploratory (Amber):** High-CPC queries that have not yet reached statistical significance.
-* **Reallocation Yield (Indigo):** Projected conversion gains if wasted funds are reallocated to verified converting keywords.
-* **Phase 4: Detailed Exploration Grid** — A virtualized keyword data grid supporting instant sorting, exact-match overrides, one-click clipboard formatting for Google Ads Editor, and local DuckDB SQL queries.
-
-### 4. Executive Vector PDF Reporting
-
-Sieve generates client audit reports client-side using browser vector engines. The resulting one-page and multi-page audit decks provide clear visualizations of audited spend, eliminated waste, and capital efficiency projections, formatted with customizable branding and multi-currency support.
+Once I wrap up this phase of my learning journey, this repository will be set to **Private**. It will remain preserved privately to remind me never to outsource true understanding to an algorithm.
 
 ---
 
-## 🔒 Privacy & Security: Complete Local Isolation
+## 📋 What Sieve Explores Conceptually
 
-Because media buyers handle confidential financial figures, client cost structures, and competitive keyword strategies, Sieve operates under a strict zero-telemetry architecture:
+Sieve was designed to investigate whether massive paid search term audits (from Google Ads, Amazon PPC, and Microsoft Advertising) could be processed entirely within a user's web browser without sending confidential client ad spend to third-party cloud servers.
 
-* **100% Client-Side Execution:** The application dispatches zero HTTP requests containing user data.
-* **Air-Gapped Operation:** Sieve functions without an active internet connection once the static application bundle is loaded.
-* **Client-Side Encrypted Backups:** Historical audit logs and delta records are stored locally via IndexedDB (Dexie.js), with optional AES-GCM-256 encrypted backups (`.sievevault`) managed entirely by the user.
+### The Problem It Attempted to Solve
+
+* **The Broad-Match Query Explosion:** Automated bidding models routinely distribute budget into irrelevant search queries.
+* **The Fragmented Long-Tail Trap:** Zero-conversion queries receiving only 1–2 clicks often hide root-token waste that standard spreadsheet filters overlook.
+* **Negative Keyword Cannibalization:** Indiscriminate negative keyword lists risk suppressing terms that drive conversions.
 
 ---
 
-## 📌 Project Status: Feature-Complete & User-Driven
+## 🏗️ The Theoretical Architecture
 
-Sieve's core engine is stable, feature-complete, and ready for production audits. 
+The codebase stands as a reference prototype for client-side, zero-server pipelines:
 
-To ensure further engineering is aligned with real-world agency workflows, **active feature development is currently guided entirely by user feedback.** 
+* **In-Browser WebAssembly Compute:** A Rust-based WebAssembly engine designed to parse byte streams directly in browser memory to compute tokenized n-grams (unigrams, bigrams).
+* **Zero-Loss "Safe List" Conflict Guard:** An inverted index intended to cross-reference proposed negative exclusions against known converting queries, falling back to exact-match bracket locks (`[exact query]`).
+* **Columnar DuckDB-WASM Storage:** Bypassing standard JavaScript object allocation by staging data in Apache Arrow record batches to query via local SQL.
+* **Decoupled Viewport Grid:** Virtualized rendering intended to maintain responsive interface frames regardless of dataset row count.
+* **Client-Side Vector PDF Engine:** In-browser document generation attempting to produce executive summaries and multi-page forensic audits directly from client memory.
 
-- If you run heavy audits and hit an unmapped CSV header, missing metric, or edge case: [Open an Issue](link) or ping me directly.
-- Feature requests and custom agency script integrations will be prioritized based on real user audits.
+---
 
-The software is provided free of artificial limits, tracking, or commercial gating under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+## 🔒 Privacy Architecture
+
+Sieve was built with zero data-egress principles:
+
+* **100% Client-Side:** No search term data, financial figures, or campaign structures ever leave your browser.
+* **Zero Telemetry:** No cloud storage, tracking databases, or analytics services.
+* **Local Persistence:** Metadata and historical audit ledgers are scoped strictly to the local browser context via IndexedDB.
+
+---
+
+## ⚠️ Final Disclaimer
+
+This software is provided **"as is"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the author be liable for any ad spend loss, account disruption, or commercial damages arising from the use of this code or its generated outputs.
+
+If you are an engineer looking into Rust-WASM streaming, DuckDB-WASM integration, or in-browser vector rendering, feel free to inspect the repository before it is archived.
