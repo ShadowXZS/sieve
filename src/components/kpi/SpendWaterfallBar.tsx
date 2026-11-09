@@ -23,8 +23,10 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
   // Compute normalized segment percentages guaranteed to sum to exactly 100.0%
   const { securedWidth, exploratoryWidth, wasteWidth } = useMemo(() => {
     if (total > 0n) {
-      const sPct = Number((securedSpendMicros * 1000n) / total) / 10;
-      const ePct = Number((exploratorySpendMicros * 1000n) / total) / 10;
+      const sPct = Math.round(Number((securedSpendMicros * 10000n) / total) / 10) / 10;
+      const ePct = exploratorySpendMicros > 0n
+        ? Math.max(0.1, Math.round(Number((exploratorySpendMicros * 10000n) / total) / 10) / 10)
+        : 0.0;
       const wPct = Math.round((100 - sPct - ePct) * 10) / 10;
       return { securedWidth: sPct, exploratoryWidth: ePct, wasteWidth: wPct };
     }

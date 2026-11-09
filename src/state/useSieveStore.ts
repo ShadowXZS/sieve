@@ -94,10 +94,47 @@ function deriveDomainMetrics(keywords: PersistedNegativeKeyword[], thresholds: S
       averageCpcMicros: clicks > 0 ? ((spendMicros / BigInt(Math.round(clicks))) as CurrencyMicros) : (0n as CurrencyMicros), hasCollision: Boolean(k.hasCollision),
     };
   });
-  const waterfall = econometricEngine.computeSpendWaterfall(searchTerms, targetCpaMicros);
-  const baselineConvs = searchTerms.reduce((s, t) => s + (t.conversions || 0), 0);
-  const yieldModel = econometricEngine.computeConvexReallocationYield(waterfall.wasteSpendMicros, waterfall.totalSpendMicros, baselineConvs > 0 ? baselineConvs : 100_000, targetCpaMicros, { gammaDamping: 0.75, annualizationMultiplier: 12 });
   const elasticity = econometricEngine.mapElasticitySpectrum(searchTerms, targetCpaMicros);
+  const minClicks = Math.max(10, (thresholds.minClicks ?? 5) * 2);
+  const ceiling = elasticity.optimalBidCeilingMicros;
+  let highRiskClicks = 0;
+  let exploratorySpendMicros = 0n as CurrencyMicros;
+  let wasteSpendMicros = 0n as CurrencyMicros;
+  let totalSpendMicros = 0n as CurrencyMicros;
+
+  for (let i = 0; i < active.length; i++) {
+    const k = active[i];
+    const term = searchTerms[i];
+    totalSpendMicros = (totalSpendMicros + term.spendMicros) as CurrencyMicros;
+    if (term.conversions > 0) {
+      if (targetCpaMicros > 0n) {
+        const allowableCost = BigInt(Math.round(term.conversions * Number(targetCpaMicros))) as CurrencyMicros;
+        if (term.spendMicros > allowableCost) {
+          wasteSpendMicros = (wasteSpendMicros + (term.spendMicros - allowableCost)) as CurrencyMicros;
+        }
+      }
+      continue;
+    }
+    const conf = k.confidenceScore ?? 0;
+    const isConfirmedWaste = conf >= 0.90 && term.spendMicros >= targetCpaMicros;
+    const isLowSample = (term.clicks > 0 && term.clicks < minClicks) || (targetCpaMicros > 0n && term.spendMicros < targetCpaMicros);
+    const isHighCpc = ceiling > 0n && term.averageCpcMicros >= ceiling;
+    const isUnvalidated = conf <= 0.85;
+    const isExploratory = !isConfirmedWaste && (isLowSample || isUnvalidated || isHighCpc);
+
+    if (isExploratory) {
+      highRiskClicks += term.clicks;
+      exploratorySpendMicros = (exploratorySpendMicros + term.spendMicros) as CurrencyMicros;
+    } else if (!term.hasCollision) {
+      wasteSpendMicros = (wasteSpendMicros + term.spendMicros) as CurrencyMicros;
+    }
+  }
+
+  const securedSpendMicros = (totalSpendMicros >= (wasteSpendMicros + exploratorySpendMicros)
+    ? (totalSpendMicros - wasteSpendMicros - exploratorySpendMicros)
+    : 0n) as CurrencyMicros;
+  const baselineConvs = searchTerms.reduce((s, t) => s + (t.conversions || 0), 0);
+  const yieldModel = econometricEngine.computeConvexReallocationYield(wasteSpendMicros, totalSpendMicros, baselineConvs > 0 ? baselineConvs : 100_000, targetCpaMicros, { gammaDamping: 0.75, annualizationMultiplier: 12 });
   let collisionCount = 0; let exactLockedCount = 0; let protectedConversions = 0;
   for (const k of active) {
     if (k.hasCollision) collisionCount++;
@@ -106,23 +143,22 @@ function deriveDomainMetrics(keywords: PersistedNegativeKeyword[], thresholds: S
   }
   if (protectedConversions === 0 && collisionCount > 0) protectedConversions = collisionCount;
   const filterMatchedVolumeMicros = BigInt(Math.round(keywords.filter((k) => (k.conversions ?? 0) <= 0).reduce((s, k) => s + Math.round((k.cost ?? k.marginalWaste ?? 0) * 1_000_000), 0))) as CurrencyMicros;
-  const highRiskClicks = searchTerms.filter((t) => t.conversions <= 0 && t.clicks > 0 && t.spendMicros < targetCpaMicros).reduce((s, t) => s + t.clicks, 0);
-  const wastePercentage = waterfall.totalSpendMicros > 0n ? Number((waterfall.wasteSpendMicros * 1000n) / waterfall.totalSpendMicros) / 10 : 0.0;
-  const cpaDragMicros = baselineConvs > 0 ? ((waterfall.wasteSpendMicros / BigInt(Math.round(baselineConvs))) as CurrencyMicros) : waterfall.wasteSpendMicros;
+  const wastePercentage = totalSpendMicros > 0n ? Number((wasteSpendMicros * 1000n) / totalSpendMicros) / 10 : 0.0;
+  const cpaDragMicros = baselineConvs > 0 ? ((wasteSpendMicros / BigInt(Math.round(baselineConvs))) as CurrencyMicros) : wasteSpendMicros;
   const metrics: SieveMetricsMicros = {
-    totalSpendMicros: waterfall.totalSpendMicros, wasteSpendMicros: waterfall.wasteSpendMicros, securedSpendMicros: waterfall.securedSpendMicros,
-    exploratorySpendMicros: waterfall.exploratorySpendMicros, actionableWasteMicros: waterfall.wasteSpendMicros, filterMatchedVolumeMicros,
+    totalSpendMicros, wasteSpendMicros, securedSpendMicros,
+    exploratorySpendMicros, actionableWasteMicros: wasteSpendMicros, filterMatchedVolumeMicros,
     protectedConversions, highRiskClicks, incrementalConversions: yieldModel.incrementalConversions ?? 0, projectedConversions: yieldModel.projectedConversions ?? 0,
     annualizedRecoveryMicros: yieldModel.annualizedRecoveryMicros ?? (0n as CurrencyMicros), optimalBidCeilingMicros: elasticity.optimalBidCeilingMicros,
     roasLiftPercent: Math.round(yieldModel.projectedRoasLift * 1000) / 10, wastePercentage, cpaDragMicros, exactLockedCount,
   };
-  const rawWasteFloat = Number(waterfall.wasteSpendMicros) / 1_000_000;
+  const rawWasteFloat = Number(wasteSpendMicros) / 1_000_000;
   const roundedWaste = currency === '¥' ? Math.round(rawWasteFloat) : Math.round(rawWasteFloat * 100) / 100;
   const avgConfidence = filtered.length > 0 ? Math.round((totalConfidence / filtered.length) * 1000) / 1000 : 0;
   const kpi: KPISummary = {
-    totalKeywords: filtered.length, totalWaste: Number.isFinite(roundedWaste) ? roundedWaste : 0, totalWasteMicros: waterfall.wasteSpendMicros,
-    actionableWasteMicros: waterfall.wasteSpendMicros, totalSpendMicros: waterfall.totalSpendMicros, securedSpendMicros: waterfall.securedSpendMicros,
-    exploratorySpendMicros: waterfall.exploratorySpendMicros, filterMatchedVolumeMicros, collisionCount, avgConfidence, exactLockedCount,
+    totalKeywords: filtered.length, totalWaste: Number.isFinite(roundedWaste) ? roundedWaste : 0, totalWasteMicros: wasteSpendMicros,
+    actionableWasteMicros: wasteSpendMicros, totalSpendMicros, securedSpendMicros,
+    exploratorySpendMicros, filterMatchedVolumeMicros, collisionCount, avgConfidence, exactLockedCount,
     protectedConversions, highRiskClicks, incrementalConversions: metrics.incrementalConversions, projectedConversions: metrics.projectedConversions,
     roasLiftPercent: metrics.roasLiftPercent, annualizedRecoveryMicros: metrics.annualizedRecoveryMicros, optimalBidCeilingMicros: metrics.optimalBidCeilingMicros, wastePercentage,
   };

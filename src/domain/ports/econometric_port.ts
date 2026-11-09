@@ -72,6 +72,7 @@ export interface IEconometricEnginePort {
    */
   computeSpendWaterfall(
     searchTerms: readonly SearchTermRecord[],
-    targetCpaMicros: CurrencyMicros
+    targetCpaMicros: CurrencyMicros,
+    options?: { optimalBidCeilingMicros?: CurrencyMicros; minClicks?: number }
   ): SpendWaterfallSpectrum;
 }

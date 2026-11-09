@@ -148,20 +148,23 @@ export class EconometricEngine implements IEconometricEnginePort {
 
   computeSpendWaterfall(
     searchTerms: readonly SearchTermRecord[],
-    targetCpaMicros: CurrencyMicros
+    targetCpaMicros: CurrencyMicros,
+    options?: { optimalBidCeilingMicros?: CurrencyMicros; minClicks?: number }
   ): SpendWaterfallSpectrum {
     let securedSpendMicros = 0n as CurrencyMicros;
     let exploratorySpendMicros = 0n as CurrencyMicros;
     let wasteSpendMicros = 0n as CurrencyMicros;
 
     const safeTargetCpa = targetCpaMicros > 0n ? targetCpaMicros : 0n;
+    const ceiling = options?.optimalBidCeilingMicros ?? 0n;
+    const minClicks = options?.minClicks ?? 5;
 
     for (const term of searchTerms) {
       const spend = term.spendMicros > 0n ? term.spendMicros : 0n;
       if (spend === 0n) continue;
 
-      if (term.conversions > 0 || term.hasCollision) {
-        if (term.conversions > 0 && safeTargetCpa > 0n) {
+      if (term.conversions > 0) {
+        if (safeTargetCpa > 0n) {
           const allowableCost = BigInt(Math.round(term.conversions * Number(safeTargetCpa))) as CurrencyMicros;
           if (spend <= allowableCost) {
             securedSpendMicros = (securedSpendMicros + spend) as CurrencyMicros;
@@ -173,20 +176,29 @@ export class EconometricEngine implements IEconometricEnginePort {
           securedSpendMicros = (securedSpendMicros + spend) as CurrencyMicros;
         }
       } else {
-        if (safeTargetCpa > 0n && spend >= safeTargetCpa) {
-          wasteSpendMicros = (wasteSpendMicros + spend) as CurrencyMicros;
-        } else {
+        const isLowSample = (safeTargetCpa > 0n && spend < safeTargetCpa) || (term.clicks > 0 && term.clicks < Math.max(10, minClicks * 2));
+        const isHighCpc = ceiling > 0n && term.averageCpcMicros >= ceiling;
+        const isExploratory = isLowSample && (isHighCpc || term.conversions <= 0);
+
+        if (isExploratory) {
           exploratorySpendMicros = (exploratorySpendMicros + spend) as CurrencyMicros;
+        } else if (term.hasCollision) {
+          securedSpendMicros = (securedSpendMicros + spend) as CurrencyMicros;
+        } else {
+          wasteSpendMicros = (wasteSpendMicros + spend) as CurrencyMicros;
         }
       }
     }
 
     const totalSpendMicros = (securedSpendMicros + exploratorySpendMicros + wasteSpendMicros) as CurrencyMicros;
+    const protectedSpendMicros = (totalSpendMicros >= (wasteSpendMicros + exploratorySpendMicros)
+      ? (totalSpendMicros - wasteSpendMicros - exploratorySpendMicros)
+      : 0n) as CurrencyMicros;
 
     return {
       totalSpendMicros,
       wasteSpendMicros,
-      securedSpendMicros,
+      securedSpendMicros: protectedSpendMicros,
       exploratorySpendMicros,
     };
   }

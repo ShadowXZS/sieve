@@ -184,3 +184,58 @@ test('Cooper State 5 (Error): Renders non-destructive alert banner and maintains
   assert.ok(screen.getByTestId('tier-exploratory-risk'));
   assert.ok(screen.getByTestId('tier-reallocation-yield'));
 });
+
+test('Spend Waterfall & High-Risk Clicks: Decomposes exploratory spend ($221,591.30 / 32,581 clicks) summing to exactly $28,397,182.15', () => {
+  cleanup();
+  useSieveStore.getState().reset();
+
+  const datasetKeywords: PersistedNegativeKeyword[] = [
+    makeKeyword({ sha256Hash: 'sec_1', keyword: 'secured brand query', matchType: 'exact', cost: 25_800_000, conversions: 516_000, clicks: 10_000_000, hasCollision: true }),
+    makeKeyword({ sha256Hash: 'wst_1', keyword: 'zero conv waste bleed', matchType: 'broad', cost: 2_375_590.85, conversions: 0, clicks: 70_000, confidenceScore: 0.95 }),
+    makeKeyword({ sha256Hash: 'risk_1', keyword: 'high risk exploratory query', matchType: 'phrase', cost: 221_591.30, conversions: 0, clicks: 32_581, confidenceScore: 0.85 }),
+  ];
+
+  act(() => {
+    useSieveStore.getState().updateThresholds({ maxMarginalWaste: 100_000_000, targetCPA: 50 });
+    useSieveStore.getState().setKeywords(datasetKeywords);
+    useSieveStore.getState().setCurrency('$', true);
+  });
+
+  const { container } = render(
+    <div>
+      <SummaryDashboard />
+      <SpendWaterfallBar />
+    </div>
+  );
+
+  // 1. High-Risk Clicks card detects 32,581 clicks
+  const riskCard = container.querySelector('[data-testid="tier-exploratory-risk"]');
+  assert.ok(riskCard?.textContent?.includes('32,581 Clicks'), 'High-Risk Clicks card must detect 32,581 clicks');
+  assert.ok(riskCard?.textContent?.includes('$221,591.30'), 'High-Risk card must display non-zero $221,591.30 exploratory spend');
+
+  // 2. Spend Waterfall displays non-zero dollar amount and percentage for Exploratory Spend
+  const waterfallExploratory = container.querySelector('[data-testid="waterfall-exploratory-value"]');
+  assert.equal(waterfallExploratory?.textContent?.trim(), '$221,591.30', 'Spend Waterfall Exploratory tier must show $221,591.30');
+
+  // 3. Total analyzed spend equals exactly $28,397,182.15
+  const totalSpendEl = container.querySelector('[data-testid="waterfall-total-spend"]');
+  assert.equal(totalSpendEl?.textContent?.trim(), '$28,397,182.15', 'Total analyzed spend must display $28,397,182.15');
+
+  // 4. Protected spend does not swallow exploratory spend ($25,800,000.00, not $26,021,591.30)
+  const securedVal = container.querySelector('[data-testid="waterfall-secured-value"]');
+  assert.equal(securedVal?.textContent?.trim(), '$25,800,000.00', 'Protected spend must be $25.8M, not swallowing exploratory spend');
+
+  // 5. Identified waste matches $2,375,590.85
+  const wasteVal = container.querySelector('[data-testid="waterfall-waste-value"]');
+  assert.equal(wasteVal?.textContent?.trim(), '$2,375,590.85', 'Waste tier must show $2,375,590.85');
+
+  // 6. Conservation of spend: Three tiers sum to exactly 100.0% width
+  const segments = container.querySelectorAll('[data-testid^="waterfall-segment-"]');
+  let totalWidth = 0;
+  segments.forEach((seg) => {
+    const match = (seg.getAttribute('style') || '').match(/width:\s*([\d.]+)%/);
+    assert.ok(match, 'Segment must have width percentage');
+    totalWidth += parseFloat(match[1]);
+  });
+  assert.ok(Math.abs(totalWidth - 100.0) < 0.1, `Waterfall segments must sum to exactly 100.0%, got ${totalWidth}%`);
+});
