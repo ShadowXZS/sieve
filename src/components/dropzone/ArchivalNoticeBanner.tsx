@@ -1,9 +1,8 @@
 /**
  * Archival Notice Banner Component
  *
- * Displays a permanent, un-dismissible archival disclaimer banner directly
- * above the file ingestion dropzone, notifying users that the project is concluded
- * and outputs must not be used for live financial decisions or production PPC campaigns.
+ * Displays an informational cautionary disclaimer banner directly
+ * above the file ingestion dropzone, notifying users that the project is created through AI.
  */
 
 import React from 'react';
@@ -28,14 +27,8 @@ export const ArchivalNoticeBanner: React.FC<ArchivalNoticeBannerProps> = ({
           <AlertTriangle className="w-5 h-5" aria-hidden="true" />
         </div>
         <div className="flex-1 space-y-1.5 min-w-0">
-          <h2 className="text-sm sm:text-base font-bold tracking-tight text-amber-300">
-            ⚠️ CRITICAL NOTICE: PROJECT CONCLUDED / ARCHIVAL STATE
-          </h2>
-          <p className="text-xs sm:text-sm font-semibold tracking-wide text-amber-400">
-            DO NOT USE OUTPUTS FOR LIVE FINANCIAL DECISIONS OR PRODUCTION PPC CAMPAIGNS.
-          </p>
-          <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
-            While the interface and core pipelines demonstrate what is possible with client-side WebAssembly, the calculations, reconciliations, and outputs from this tool are not verified for production accuracy. Use this repository strictly as an educational case study and architectural reference for in-browser data processing.
+          <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
+            This is a project created through AI, please use the data as a reference and not make financial decisions based on it.
           </p>
         </div>
       </div>

@@ -66,6 +66,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
 
         for (let i = 0; i < totalFiles; i++) {
           const file = files[i];
+          if (file.size === 0) throw new Error('PARSE_ERROR: Cannot ingest empty CSV file (0 bytes)');
 
           // Validate non-empty file size
           if (file.size === 0) {
@@ -235,8 +236,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
             Drag &amp; drop search term CSV reports here
           </h3>
           <p className="text-xs text-zinc-400 max-w-sm mb-4">
-            Supports Google Ads, Amazon PPC, and Microsoft Advertising export formats. Up to 600MB
-            processed in background workers.
+            Supports Google Ads, Amazon PPC, and Microsoft Advertising export formats. Completely processed in background workers in browser.
           </p>
 
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-800 text-zinc-300 group-hover:bg-zinc-700 group-hover:text-white transition-all duration-150 ease-out active:scale-95">
@@ -270,4 +270,3 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
     </div>
   );
 };
-
