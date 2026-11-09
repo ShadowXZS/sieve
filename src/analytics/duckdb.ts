@@ -189,3 +189,5 @@ export async function closeDuckDB(): Promise<void> {
     dbInstance = null;
   }
 }
+
+export { ensureTablesRegistered } from './duckdb_adapter.ts';

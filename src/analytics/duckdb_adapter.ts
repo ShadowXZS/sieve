@@ -14,18 +14,16 @@ import type {
   SqlQueryParam,
 } from '../domain/ports/database_port.ts';
 import type {
-  SearchTermsTableContract,
-  TokenMatrixTableContract,
-  SafeListTableContract,
-  DuckDbTableContract,
+  SearchTermsTableContract, TokenMatrixTableContract, SafeListTableContract, DuckDbTableContract,
+  SearchTermRecord, CurrencyMicros, ClickCount, ImpressionCount, QueryString, PlatformMatchType,
 } from '../domain/types/index.ts';
+import { toCurrencyMicros } from '../domain/types/index.ts';
+import type { PersistedNegativeKeyword } from '../workers/protocol.ts';
+import { recordsToArrowIpc, tokensToArrowIpc } from './arrow_bridge.ts';
+import { NgramTokenizerEngine } from '../domain/engines/tokenizer_engine.ts';
+import { logger } from '../utils/logger.ts';
 import {
-  initDuckDB,
-  executeDuckDBSQL,
-  executePreparedStatement,
-  registerArrowTable,
-  dropTable,
-  validateTableName,
+  initDuckDB, executeDuckDBSQL, executePreparedStatement, registerArrowTable, dropTable, validateTableName,
 } from './duckdb.ts';
 import { resolveDiagnosticPreset } from './presets.ts';
 
@@ -188,4 +186,53 @@ export class DuckDbAdapter implements IAnalyticalDatabasePort {
     await this.unregisterTable('token_matrix');
     await this.unregisterTable('search_terms');
   }
+
+  async ensureTablesRegistered(records: readonly SearchTermRecord[] | readonly PersistedNegativeKeyword[], force = false): Promise<void> {
+    return ensureTablesRegistered(records, force);
+  }
 }
+
+export async function ensureTablesRegistered(records: readonly SearchTermRecord[] | readonly PersistedNegativeKeyword[], force = false): Promise<void> {
+  if (!records || records.length === 0) return;
+  const conn = await initDuckDB();
+  let rowCount = 0;
+  try {
+    const res = conn.query('SELECT COUNT(*) as cnt FROM search_terms;');
+    const cntVal = res.toArray()[0]?.cnt;
+    rowCount = typeof cntVal === 'bigint' ? Number(cntVal) : Number(cntVal ?? 0);
+  } catch { rowCount = 0; }
+  if (!force && rowCount > 0 && rowCount === records.length) return;
+
+  const normalized: SearchTermRecord[] = records.map((r: any, idx: number) => {
+    const raw = (r.rawQuery || r.normalizedQuery || r.keyword || `query_${idx}`) as QueryString;
+    const clicks = (r.clicks ?? 0) as ClickCount;
+    const convs = typeof r.conversions === 'number' ? r.conversions : Number(r.conversions || 0);
+    const spend = r.spendMicros !== undefined ? (typeof r.spendMicros === 'bigint' ? r.spendMicros : BigInt(Math.round(Number(r.spendMicros)))) : r.spend_micros !== undefined ? (typeof r.spend_micros === 'bigint' ? r.spend_micros : BigInt(Math.round(Number(r.spend_micros)))) : r.cost !== undefined ? toCurrencyMicros(r.cost) : r.marginalWaste !== undefined ? toCurrencyMicros(r.marginalWaste) : 0n;
+    const rev = r.revenueMicros !== undefined ? (typeof r.revenueMicros === 'bigint' ? r.revenueMicros : BigInt(Math.round(Number(r.revenueMicros)))) : r.revenue_micros !== undefined ? (typeof r.revenue_micros === 'bigint' ? r.revenue_micros : BigInt(Math.round(Number(r.revenue_micros)))) : 0n;
+    const cpc = r.averageCpcMicros !== undefined ? (typeof r.averageCpcMicros === 'bigint' ? r.averageCpcMicros : BigInt(Math.round(Number(r.averageCpcMicros)))) : r.cpc_micros !== undefined ? (typeof r.cpc_micros === 'bigint' ? r.cpc_micros : BigInt(Math.round(Number(r.cpc_micros)))) : clicks > 0 && spend > 0n ? (spend / BigInt(Math.round(clicks))) : 0n;
+    return {
+      rawQuery: raw, normalizedQuery: (r.normalizedQuery || raw.toLowerCase()) as QueryString,
+      campaignName: r.campaignName || r.firstSeenCampaign || r.scope?.campaign || r.campaignId || r.campaign || 'campaign',
+      adGroupName: r.adGroupName || r.scope?.adGroup || r.adGroupId || r.adgroup || 'adgroup',
+      matchType: ((r.matchType || 'BROAD') as string).toUpperCase() as PlatformMatchType,
+      impressions: (r.impressions ?? 0) as ImpressionCount, clicks, spendMicros: spend as CurrencyMicros,
+      conversions: convs, revenueMicros: rev as CurrencyMicros, averageCpcMicros: cpc as CurrencyMicros,
+      hasCollision: Boolean(r.hasCollision ?? (r.is_safe === false)),
+    };
+  });
+
+  await registerArrowTable('search_terms', recordsToArrowIpc(normalized));
+  try {
+    conn.query('ALTER TABLE search_terms ADD COLUMN cost DOUBLE; UPDATE search_terms SET cost = CAST(spend_micros AS DOUBLE) / 1000000.0;');
+    conn.query('CREATE OR REPLACE VIEW safe_list AS SELECT DISTINCT query AS term, query, conversions, revenue_micros, spend_micros, CAST(0 AS BIGINT) AS created_at FROM search_terms WHERE conversions > 0;');
+  } catch {}
+  try {
+    const tokens = new NgramTokenizerEngine().aggregateTokens(normalized);
+    if (tokens.length > 0) {
+      await registerArrowTable('token_matrix', tokensToArrowIpc(tokens));
+      try { conn.query('ALTER TABLE token_matrix ADD COLUMN token VARCHAR; UPDATE token_matrix SET token = token_text; ALTER TABLE token_matrix ADD COLUMN wilson_score_upper DOUBLE; UPDATE token_matrix SET wilson_score_upper = wilson_upper_bound;'); } catch {}
+    }
+  } catch (tokenErr) { logger.debug('DuckDB token_matrix registration note:', tokenErr); }
+}
+
+export const duckDbAdapter = new DuckDbAdapter();

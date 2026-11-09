@@ -8,7 +8,7 @@ import { useSieveStore } from '../../state/useSieveStore.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
-import { DuckDbAdapter } from '../../analytics/duckdb_adapter.ts';
+import { DuckDbAdapter, duckDbAdapter } from '../../analytics/duckdb_adapter.ts';
 import { topSpendersPreset, zeroConvWastePreset, campaignRollupPreset, auctionCollisionsPreset, highCpcOutliersPreset } from '../../analytics/presets.ts';
 
 export interface PowerQueryDrawerProps {
@@ -55,19 +55,37 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
     setIsQueryRunning(true);
     setSqlQueryError(null);
     try {
+      const activeAdapter = adapter ?? duckDbAdapter;
+      const storeState = useSieveStore.getState();
+      const currentDataset = storeState.records.length > 0 ? storeState.records : storeState.keywords;
+      if (currentDataset.length > 0) {
+        await activeAdapter.ensureTablesRegistered(currentDataset as any);
+      }
+
       if (isExplain) {
         const res = onExplainQuery ? await onExplainQuery(trimmed) : adapter ? await adapter.explainQuery(trimmed) : null;
         if (res) { setExplainPlan(typeof res === 'string' ? res : res.plan || res.operators?.join(' -> ') || ''); }
         else {
-          const run = onExecuteQuery || (workerPool ? (s: string) => workerPool.executeSQL(s) : null);
-          const raw = run ? await run(`EXPLAIN ${trimmed}`) : await new DuckDbAdapter().explainQuery(trimmed);
+          const isMockPool = workerPool && typeof (workerPool as any).executeSQL === 'function' && typeof (workerPool as any).parseAndIngest !== 'function';
+          const run = onExecuteQuery || (isMockPool ? (s: string) => workerPool.executeSQL(s) : null);
+          const raw = run ? await run(`EXPLAIN ${trimmed}`) : await activeAdapter.explainQuery(trimmed);
           const typedRaw = raw as { plan?: string; rows?: Array<{ explain_value?: string; plan?: string }> };
           setExplainPlan(typeof raw === 'string' ? raw : typedRaw.plan || String(typedRaw.rows?.[0]?.explain_value ?? typedRaw.rows?.[0]?.plan ?? JSON.stringify(raw)));
         }
       } else {
         setExplainPlan(null);
-        const res = onExecuteQuery ? await onExecuteQuery(trimmed) : adapter ? await adapter.executeQuery(trimmed) : workerPool ? await workerPool.executeSQL(trimmed) : await new DuckDbAdapter().executeQuery(trimmed);
-        setSqlQueryResult({ columns: res.columns, rows: res.rows, rowCount: res.rowCount, executionTimeMs: res.executionTimeMs, query: trimmed });
+        let res: { columns: readonly string[]; rows: readonly Record<string, unknown>[]; rowCount: number; executionTimeMs: number };
+        const isMockPool = workerPool && typeof (workerPool as any).executeSQL === 'function' && typeof (workerPool as any).parseAndIngest !== 'function';
+        if (onExecuteQuery) {
+          res = await onExecuteQuery(trimmed);
+        } else if (adapter) {
+          res = await adapter.executeQuery(trimmed);
+        } else if (isMockPool) {
+          res = await workerPool.executeSQL(trimmed);
+        } else {
+          res = await activeAdapter.executeQuery(trimmed);
+        }
+        setSqlQueryResult({ columns: [...res.columns], rows: [...res.rows], rowCount: res.rowCount, executionTimeMs: res.executionTimeMs, query: trimmed });
         pushHistory(trimmed);
       }
     } catch (err: unknown) { setSqlQueryError(err instanceof Error ? err.message : String(err)); }

@@ -7,6 +7,7 @@ import type { PersistedNegativeKeyword, FragmentedLongTailResult, MatchTypeDilut
 import { type SupportedCurrency, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, detectCurrencyFromData } from '../utils/currency.ts';
 import { type CurrencyMicros, type SearchTermRecord, type SpendWaterfallSpectrum, type ConvexReallocationYield, type BidElasticitySpectrum, type PlatformMatchType, type ClickCount, type ImpressionCount, type QueryString, toCurrencyMicros } from '../domain/types/index.ts';
 import { EconometricEngine } from '../domain/engines/econometric_engine.ts';
+import { ensureTablesRegistered } from '../analytics/duckdb_adapter.ts';
 
 export type { SupportedCurrency, FragmentedLongTailResult, MatchTypeDilutionResult };
 export { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY };
@@ -140,18 +141,19 @@ export const useSieveStore = create<SieveState>((set, get) => ({
   keywords: [], filteredKeywords: [], records: [], filteredRecords: [], thresholds: { confidenceScore: 0.8, maxMarginalWaste: 100000, minClicks: 5, targetCPA: 50 },
   kpi: EMPTY_KPI, summary: EMPTY_KPI, currency: DEFAULT_CURRENCY, isCurrencyManual: false, isIngesting: false, isLoading: false, ingestionProgress: 0,
   ingestedFiles: [], selectedKeyword: null, errorMessage: null, longTailResult: null, dilutionResult: null, isAnalyticalDrawerOpen: false, activeAnalyticalTab: 'long-tail',
-  isPowerQueryOpen: false, powerQuerySql: 'SELECT query, campaign, clicks, cost, conversions FROM search_terms ORDER BY cost DESC LIMIT 20;', sqlQueryResult: null,
+  isPowerQueryOpen: false, powerQuerySql: 'SELECT query, campaign, clicks, spend_micros, conversions FROM search_terms ORDER BY spend_micros DESC LIMIT 20;', sqlQueryResult: null,
   isQueryRunning: false, sqlQueryError: null, fileLoaded: false,
   setFileLoaded: (loaded) => set({ fileLoaded: loaded }),
   handleParseSuccess: (payload) => {
     const raw = payload.records || []; const cur = payload.currency || get().currency || DEFAULT_CURRENCY;
     const { filtered, kpi } = deriveDomainMetrics(raw, get().thresholds, cur);
     const finalKPI = payload.summary ? { ...kpi, ...payload.summary, totalWasteMicros: payload.summary.totalWaste !== undefined ? toMicros(payload.summary.totalWaste) : kpi.totalWasteMicros, actionableWasteMicros: payload.summary.totalWaste !== undefined ? toMicros(payload.summary.totalWaste) : kpi.actionableWasteMicros } : kpi;
+    if (raw.length > 0) { ensureTablesRegistered(raw as any).catch(() => {}); }
     set({ records: raw, keywords: raw, filteredRecords: raw, filteredKeywords: raw, kpi: finalKPI, summary: finalKPI, currency: cur, fileLoaded: raw.length > 0, isLoading: false, isIngesting: false, errorMessage: null });
   },
   onParseSuccess: (p) => get().handleParseSuccess(p),
   clearDataset: () => set({ fileLoaded: false, records: [], keywords: [], filteredRecords: [], filteredKeywords: [], isLoading: false, isIngesting: false, kpi: { ...EMPTY_KPI }, summary: { ...EMPTY_KPI }, selectedKeyword: null, errorMessage: null, longTailResult: null, dilutionResult: null, ingestedFiles: [], sqlQueryResult: null, sqlQueryError: null, isQueryRunning: false }),
-  setKeywords: (kw) => { const { filtered, kpi } = deriveDomainMetrics(kw, get().thresholds, get().currency); set({ records: kw, keywords: kw, filteredRecords: filtered, filteredKeywords: filtered, kpi, summary: kpi, fileLoaded: kw.length > 0, isLoading: false, isIngesting: false }); },
+  setKeywords: (kw) => { const { filtered, kpi } = deriveDomainMetrics(kw, get().thresholds, get().currency); if (kw.length > 0) { ensureTablesRegistered(kw as any).catch(() => {}); } set({ records: kw, keywords: kw, filteredRecords: filtered, filteredKeywords: filtered, kpi, summary: kpi, fileLoaded: kw.length > 0, isLoading: false, isIngesting: false }); },
   setRecords: (r) => get().setKeywords(r),
   setIsLoading: (isLoading) => set({ isLoading, isIngesting: isLoading }),
   updateThresholds: (partial) => { const next = { ...get().thresholds, ...partial }; const source = get().records.length > 0 ? get().records : get().keywords; const { filtered, kpi } = deriveDomainMetrics(source, next, get().currency); set({ thresholds: next, filteredRecords: filtered, filteredKeywords: filtered, kpi, summary: kpi }); },
