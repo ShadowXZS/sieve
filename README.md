@@ -20,6 +20,63 @@
 * **License:** GNU Affero General Public License v3.0 (AGPL-3.0)
 
 ---
+# Sieve — Project Post-Mortem
+
+> **Project Status:** Archived / Discontinued
+> **Development Time:** ~5 Days
+
+After investing roughly five days into building **Sieve**—a platform built around digital ad auditing and Google Ads output analysis—I ran headfirst into architectural walls that made one thing clear: **prompt-driven development breaks down when building complex, mathematically deterministic software.**
+
+I am stepping away from Sieve entirely. I am preserving this repository as a personal post-mortem—an enduring reminder of why I will not outsource core engineering logic to AI systems.
+
+---
+
+## The Build Story: From Frustration to Final Audit
+
+At first, this project felt like a losing battle. Out of sheer stubbornness, I refused to walk away on a failure. To salvage the output, I built an external AI auditor—prompted with the persona of a Digital Ad Expert and Google Ads Specialist—to critique the platform's results, and I systematically patched every issue it surfaced.
+
+That iteration represented the absolute limit of what prompt-driven assembly could achieve. Without real-world feedback from actual industry experts or users requesting features, continuing to iterate inside an AI echo chamber had no meaningful path forward. Looking back at the codebase, the deeper architectural lessons became impossible to ignore.
+
+---
+
+## Key Takeaways & Lessons Learned
+
+### 1. The Illusion of Delegation
+Apart from formatting Prompt boilerplate, delegating actual software architecture to an LLM is not engineering. It quickly turned into an exercise in watching YouTube in another tab while an automated script cheerfully generated 4,000 lines of technical debt.
+
+Prompt-driven development felt like commissioning a blindfolded painter. The model has read every book on art theory, knows every classical brush technique, and talks endlessly about composition. The moment the brush touches the canvas, however, it cannot see where the paint lands. When pigment bleeds across the frame (a memory leak) or runs off onto the floor (a call stack overflow), it keeps applying strokes with 100% statistical confidence until you tap it on the shoulder to describe the disaster.
+
+AI builders have mastered the visual exterior—generating slick dark-mode cards, glowing badges, and immaculate button borders. Yet a polished interface is useless when the engine underneath is pure architectural spaghetti. That is not the kind of software engineer I want to become.
+
+### 2. Prompting English Is Not Systems Engineering
+Orchestrating LLMs at high velocity creates a convincing illusion of productivity. You prompt, the compiler passes, and features appear. Relying on an LLM to interpret context, state invariants, and data lifecycles without a human verifying every byte is not engineering.
+
+AI is not "smart." It is simply exceptional at simulating progress while quietly accumulating debugging debt behind the scenes.
+
+### 3. The "Whack-A-Mole" Architectural Trap
+As an application matures toward production, AI-driven development tends to collapse under system complexity:
+
+* Fixing an **out-of-memory error** silently starves a downstream state store.
+* Fixing the **state store** introduces race conditions in the Web Worker.
+* Fixing the **Web Worker** breaks the calculation layer and mathematical parity.
+
+You end up patching patches until the codebase devolves into an unmaintainable maze of localized hotfixes.
+
+### 4. The Hard Reality of Distribution
+Coming into this build, I bought into the common misconception that simply shipping a functioning product would naturally attract users. I quickly realized two truths:
+
+1. **Product Readiness:** This tool was nowhere near a truly reliable, production-grade product.
+2. **Distribution Over Code:** Even when software works, distribution is the real battle. Code sitting in a repository or deployed on a domain accomplishes nothing without deliberate distribution channels and real-world user feedback.
+
+---
+
+## Final Conclusion
+
+Initially, I blamed my own lack of contextual understanding. After exhaustively meta-prompting, refactoring, and restructuring the system across multiple iterations, the reality became obvious: **AI tools can accelerate prototypes, but they cannot replace the deliberate, verified systems engineering required for production software.**
+
+Once I wrap up this phase of my learning journey, this repository will be set to **Private**—preserved as a permanent reminder never to outsource true understanding to an algorithm.
+
+---
 
 ## 1. Executive Summary & Zero-Egress Privacy Model
 
