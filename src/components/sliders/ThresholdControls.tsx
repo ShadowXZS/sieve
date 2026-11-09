@@ -1,18 +1,13 @@
 /**
  * Real-Time Threshold Recalculation Controls
- *
- * Provides non-blocking, throttled slider controls for statistical confidence
- * boundaries, marginal CPA drag multipliers, and conversion loss limits.
- * Guarantees 60/120 FPS UI execution with sub-10ms parameter re-evaluations
- * and isolated paint/layout boundaries via CSS containment.
+ * Live non-blocking throttled slider controls for statistical confidence,
+ * CPA drag targets, marginal waste boundaries, and click thresholds.
  */
-
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { Sliders, Percent, Target, MousePointerClick } from 'lucide-react';
 import { useSieveStore, type SieveThresholds } from '../../state/useSieveStore.ts';
 import { formatCurrency } from '../../utils/currency.ts';
 import type { SieveWorkerPool } from '../../workers/pool.ts';
-import { logger } from '../../utils/logger.ts';
 
 export interface ThresholdControlsProps {
   workerPool?: SieveWorkerPool;
@@ -22,90 +17,73 @@ export interface ThresholdControlsProps {
 export const ThresholdControls: React.FC<ThresholdControlsProps> = ({ workerPool, className = '' }) => {
   const { thresholds, updateThresholds, currency } = useSieveStore();
 
-  // Local ephemeral state for responsive 60-120 FPS slider dragging without UI lag
   const [localConfidence, setLocalConfidence] = useState<number>(() => thresholds.confidenceScore ?? 0.8);
   const [localWaste, setLocalWaste] = useState<number>(() => thresholds.maxMarginalWaste ?? 100000);
   const [localCPA, setLocalCPA] = useState<number>(() => thresholds.targetCPA ?? 50);
-  const [localClicks, setLocalClicks] = useState<number>(() => thresholds.minClicks ?? 10);
+  const [localClicks, setLocalClicks] = useState<number>(() => thresholds.minClicks ?? 5);
 
   const pendingUpdates = useRef<Partial<SieveThresholds>>({});
-  const rafId = useRef<number | ReturnType<typeof setTimeout> | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Synchronize local ephemeral state when external store thresholds change while idle
   useEffect(() => {
-    if (rafId.current === null) {
+    if (!debounceTimer.current) {
       setLocalConfidence(thresholds.confidenceScore ?? 0.8);
       setLocalWaste(thresholds.maxMarginalWaste ?? 100000);
       setLocalCPA(thresholds.targetCPA ?? 50);
-      setLocalClicks(thresholds.minClicks ?? 10);
+      setLocalClicks(thresholds.minClicks ?? 5);
     }
   }, [thresholds.confidenceScore, thresholds.maxMarginalWaste, thresholds.targetCPA, thresholds.minClicks]);
 
-  // Teardown animation frame timer on component unmount
   useEffect(() => () => {
-    if (rafId.current !== null) {
-      if (typeof cancelAnimationFrame !== 'undefined' && typeof rafId.current === 'number') {
-        cancelAnimationFrame(rafId.current);
-      } else {
-        clearTimeout(rafId.current as ReturnType<typeof setTimeout>);
-      }
-      rafId.current = null;
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
     }
   }, []);
 
-  const dispatchWorkerRecalculation = useCallback((confidence: number) => {
+  const dispatchWorkerRecalculation = useCallback((t: SieveThresholds) => {
     if (!workerPool) return;
-    workerPool
-      .execute({
-        type: 'CALCULATE_BETA_CONFIDENCE',
-        requestId: `recalc_${Date.now()}`,
-        trials: 100,
-        successes: 0,
-        priorAlpha: 1.0,
-        priorBeta: 10.0,
-        thresholdRate: confidence,
-      })
-      .catch((err) => {
-        logger.debug('Threshold recalculation worker dispatch notice:', err);
-      });
+    workerPool.execute({
+      type: 'REFILTER_THRESHOLDS',
+      requestId: `recalc_${Date.now()}`,
+      minClicks: t.minClicks,
+      confidenceThreshold: t.confidenceScore ?? t.minConfidence ?? 0.8,
+      targetCPA: t.targetCPA,
+    }).catch(() => {});
   }, [workerPool]);
 
-  // Micro-throttled batch synchronization to requestAnimationFrame cycles
-  const scheduleBatchCommit = useCallback((updates: Partial<SieveThresholds>) => {
+  const scheduleDebouncedCommit = useCallback((updates: Partial<SieveThresholds>) => {
     Object.assign(pendingUpdates.current, updates);
-    if (rafId.current !== null) return;
-
-    const scheduleFn = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : setTimeout;
-    rafId.current = scheduleFn(() => {
-      rafId.current = null;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
       const batched = { ...pendingUpdates.current };
       pendingUpdates.current = {};
       updateThresholds(batched);
-      if (batched.confidenceScore !== undefined) {
-        dispatchWorkerRecalculation(batched.confidenceScore);
-      }
-    });
+      const nextThresholds = { ...useSieveStore.getState().thresholds, ...batched };
+      dispatchWorkerRecalculation(nextThresholds);
+    }, 5);
   }, [updateThresholds, dispatchWorkerRecalculation]);
 
   const handleConfidenceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setLocalConfidence(val);
-    scheduleBatchCommit({ confidenceScore: val });
+    scheduleDebouncedCommit({ confidenceScore: val });
   };
   const handleWasteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setLocalWaste(val);
-    scheduleBatchCommit({ maxMarginalWaste: val });
+    scheduleDebouncedCommit({ maxMarginalWaste: val });
   };
   const handleTargetCPAChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setLocalCPA(val);
-    scheduleBatchCommit({ targetCPA: val });
+    scheduleDebouncedCommit({ targetCPA: val });
   };
   const handleMinClicksChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10);
     setLocalClicks(val);
-    scheduleBatchCommit({ minClicks: val });
+    scheduleDebouncedCommit({ minClicks: val });
   };
 
   return (
@@ -127,7 +105,6 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({ workerPool
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Confidence Threshold */}
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label htmlFor="confidence-slider" className="flex items-center gap-1.5 font-medium text-zinc-300">
@@ -155,7 +132,6 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({ workerPool
           </div>
         </div>
 
-        {/* Max Marginal Waste */}
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label htmlFor="waste-slider" className="flex items-center gap-1.5 font-medium text-zinc-300">
@@ -185,7 +161,6 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({ workerPool
           </div>
         </div>
 
-        {/* Target CPA */}
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label htmlFor="cpa-slider" className="flex items-center gap-1.5 font-medium text-zinc-300">
@@ -213,7 +188,6 @@ export const ThresholdControls: React.FC<ThresholdControlsProps> = ({ workerPool
           </div>
         </div>
 
-        {/* Minimum Click Trials */}
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-zinc-950/40 border border-zinc-850/60 transition-all duration-150 ease-out hover:border-zinc-700/60">
           <div className="flex items-center justify-between text-xs">
             <label htmlFor="clicks-slider" className="flex items-center gap-1.5 font-medium text-zinc-300">
