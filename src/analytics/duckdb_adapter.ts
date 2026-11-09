@@ -196,12 +196,15 @@ export async function ensureTablesRegistered(records: readonly SearchTermRecord[
   if (!records || records.length === 0) return;
   const conn = await initDuckDB();
   let rowCount = 0;
+  let hasValidColumns = false;
   try {
     const res = conn.query('SELECT COUNT(*) as cnt FROM search_terms;');
     const cntVal = res.toArray()[0]?.cnt;
     rowCount = typeof cntVal === 'bigint' ? Number(cntVal) : Number(cntVal ?? 0);
-  } catch { rowCount = 0; }
-  if (!force && rowCount > 0 && rowCount === records.length) return;
+    conn.query('SELECT match_type, impressions, clicks, spend_micros, conversions, revenue_micros, cpc_micros, is_safe FROM search_terms LIMIT 0;');
+    hasValidColumns = true;
+  } catch { rowCount = 0; hasValidColumns = false; }
+  if (!force && hasValidColumns && rowCount > 0 && rowCount === records.length) return;
 
   const normalized: SearchTermRecord[] = records.map((r: any, idx: number) => {
     const raw = (r.rawQuery || r.normalizedQuery || r.keyword || `query_${idx}`) as QueryString;
@@ -210,11 +213,13 @@ export async function ensureTablesRegistered(records: readonly SearchTermRecord[
     const spend = r.spendMicros !== undefined ? (typeof r.spendMicros === 'bigint' ? r.spendMicros : BigInt(Math.round(Number(r.spendMicros)))) : r.spend_micros !== undefined ? (typeof r.spend_micros === 'bigint' ? r.spend_micros : BigInt(Math.round(Number(r.spend_micros)))) : r.cost !== undefined ? toCurrencyMicros(r.cost) : r.marginalWaste !== undefined ? toCurrencyMicros(r.marginalWaste) : 0n;
     const rev = r.revenueMicros !== undefined ? (typeof r.revenueMicros === 'bigint' ? r.revenueMicros : BigInt(Math.round(Number(r.revenueMicros)))) : r.revenue_micros !== undefined ? (typeof r.revenue_micros === 'bigint' ? r.revenue_micros : BigInt(Math.round(Number(r.revenue_micros)))) : 0n;
     const cpc = r.averageCpcMicros !== undefined ? (typeof r.averageCpcMicros === 'bigint' ? r.averageCpcMicros : BigInt(Math.round(Number(r.averageCpcMicros)))) : r.cpc_micros !== undefined ? (typeof r.cpc_micros === 'bigint' ? r.cpc_micros : BigInt(Math.round(Number(r.cpc_micros)))) : clicks > 0 && spend > 0n ? (spend / BigInt(Math.round(clicks))) : 0n;
+    const rawMatch = String(r.match_type ?? r.matchType ?? r['Match type'] ?? 'BROAD').trim().toUpperCase();
+    const matchType = (rawMatch.includes('EXACT') ? 'EXACT' : rawMatch.includes('PHRASE') ? 'PHRASE' : 'BROAD') as PlatformMatchType;
     return {
       rawQuery: raw, normalizedQuery: (r.normalizedQuery || raw.toLowerCase()) as QueryString,
       campaignName: r.campaignName || r.firstSeenCampaign || r.scope?.campaign || r.campaignId || r.campaign || 'campaign',
       adGroupName: r.adGroupName || r.scope?.adGroup || r.adGroupId || r.adgroup || 'adgroup',
-      matchType: ((r.matchType || 'BROAD') as string).toUpperCase() as PlatformMatchType,
+      matchType,
       impressions: (r.impressions ?? 0) as ImpressionCount, clicks, spendMicros: spend as CurrencyMicros,
       conversions: convs, revenueMicros: rev as CurrencyMicros, averageCpcMicros: cpc as CurrencyMicros,
       hasCollision: Boolean(r.hasCollision ?? (r.is_safe === false)),

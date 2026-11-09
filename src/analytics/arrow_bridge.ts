@@ -95,6 +95,14 @@ function toSafeBigInt(val: bigint | number | undefined | null, fallback: bigint 
   return fallback;
 }
 
+export function normalizeMatchType(raw: unknown): string {
+  if (typeof raw !== 'string') return 'BROAD';
+  const upper = raw.trim().toUpperCase();
+  if (upper.includes('EXACT')) return 'EXACT';
+  if (upper.includes('PHRASE')) return 'PHRASE';
+  return 'BROAD';
+}
+
 export function recordsToArrowTable(records: readonly SearchTermRecord[]): arrow.Table {
   const n = records.length;
   const queries = new Array<string>(n);
@@ -111,24 +119,28 @@ export function recordsToArrowTable(records: readonly SearchTermRecord[]): arrow
 
   for (let i = 0; i < n; i++) {
     const r = records[i];
-    queries[i] = r.rawQuery || r.normalizedQuery || '';
-    campaigns[i] = r.campaignName || '';
-    adgroups[i] = r.adGroupName || '';
-    matchTypes[i] = r.matchType || 'BROAD';
-    impressions[i] = r.impressions || 0;
-    clicks[i] = r.clicks || 0;
-    spendMicros[i] = toSafeBigInt(r.spendMicros);
-    conversions[i] = r.conversions || 0;
-    revenueMicros[i] = toSafeBigInt(r.revenueMicros);
-    cpcMicros[i] = toSafeBigInt(r.averageCpcMicros);
     const anyR = r as unknown as Record<string, unknown>;
+    queries[i] = (r.rawQuery || r.normalizedQuery || anyR.query || anyR.keyword || '') as string;
+    campaigns[i] = (r.campaignName || anyR.campaign || anyR.firstSeenCampaign || '') as string;
+    adgroups[i] = (r.adGroupName || anyR.adgroup || anyR.adGroup || '') as string;
+    const matchType = anyR.match_type ?? anyR.matchType ?? anyR['Match type'] ?? r.matchType ?? 'BROAD';
+    matchTypes[i] = normalizeMatchType(matchType);
+    impressions[i] = Number(r.impressions ?? anyR.impressions ?? 0);
+    clicks[i] = Number(r.clicks ?? anyR.clicks ?? 0);
+    spendMicros[i] = toSafeBigInt(r.spendMicros ?? anyR.spend_micros ?? anyR.cost_micros ?? (anyR.cost !== undefined ? toSafeBigInt(Number(anyR.cost) * 1_000_000) : 0n));
+    conversions[i] = Number(r.conversions ?? anyR.conversions ?? 0);
+    revenueMicros[i] = toSafeBigInt(r.revenueMicros ?? anyR.revenue_micros ?? 0n);
+    const computedCpc = clicks[i] > 0 && spendMicros[i] > 0n ? spendMicros[i] / BigInt(clicks[i]) : 0n;
+    cpcMicros[i] = toSafeBigInt(r.averageCpcMicros ?? anyR.cpc_micros ?? anyR.avg_cpc_micros ?? computedCpc);
     isSafe[i] = typeof anyR.is_safe === 'boolean'
       ? anyR.is_safe
       : typeof anyR.isSafe === 'boolean'
         ? anyR.isSafe
         : r.hasCollision !== undefined
           ? !r.hasCollision
-          : true;
+          : typeof anyR.has_collision === 'boolean'
+            ? !anyR.has_collision
+            : true;
   }
 
   return new arrow.Table({

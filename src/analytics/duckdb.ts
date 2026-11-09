@@ -148,6 +148,35 @@ export async function executePreparedStatement(sql: string, params: unknown[] = 
   }
 }
 
+export function bindSearchTermsColumns(conn: DuckDBConnection): void {
+  const missingCols = [
+    "ALTER TABLE search_terms ADD COLUMN match_type VARCHAR DEFAULT 'BROAD';",
+    'ALTER TABLE search_terms ADD COLUMN impressions UBIGINT DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN clicks UBIGINT DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN spend_micros UBIGINT DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN conversions DOUBLE DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN revenue_micros UBIGINT DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN cpc_micros UBIGINT DEFAULT 0;',
+    'ALTER TABLE search_terms ADD COLUMN is_safe BOOLEAN DEFAULT true;',
+    'ALTER TABLE search_terms ADD COLUMN cost DOUBLE DEFAULT 0.0;',
+  ];
+  for (const ddl of missingCols) {
+    try { conn.query(ddl); } catch {}
+  }
+  try {
+    conn.query('UPDATE search_terms SET spend_micros = CAST(round(cost * 1000000) AS UBIGINT) WHERE (spend_micros = 0 OR spend_micros IS NULL) AND cost IS NOT NULL AND cost > 0;');
+  } catch {}
+  try {
+    conn.query('UPDATE search_terms SET cost = CAST(spend_micros AS DOUBLE) / 1000000.0 WHERE (cost = 0 OR cost IS NULL) AND spend_micros IS NOT NULL AND spend_micros > 0;');
+  } catch {}
+  try {
+    conn.query('UPDATE search_terms SET cpc_micros = CAST(round(spend_micros / nullif(clicks, 0)) AS UBIGINT) WHERE (cpc_micros = 0 OR cpc_micros IS NULL) AND spend_micros > 0;');
+  } catch {}
+  try {
+    conn.query('UPDATE search_terms SET is_safe = NOT has_collision WHERE has_collision IS NOT NULL;');
+  } catch {}
+}
+
 /**
  * Registers an Arrow IPC buffer as a virtual table in DuckDB using zero-copy IPC streaming.
  */
@@ -161,6 +190,9 @@ export async function registerArrowTable(tableName: string, ipcBuffer: Uint8Arra
   }
   const uint8 = ipcBuffer instanceof Uint8Array ? ipcBuffer : new Uint8Array(ipcBuffer);
   conn.insertArrowFromIPCStream(uint8, { name: safeName });
+  if (safeName === 'search_terms') {
+    bindSearchTermsColumns(conn);
+  }
 }
 
 export const registerSearchTermsTable = (buf: Uint8Array | ArrayBuffer) => registerArrowTable('search_terms', buf);
