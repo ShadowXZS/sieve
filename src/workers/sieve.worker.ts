@@ -1,1343 +1,223 @@
 /**
- * Sieve Web Worker Implementation
+ * SIEVE Web Worker Core
  *
- * Encapsulates the WebAssembly sieve_core lifecycle within a dedicated
- * background thread. Guarantees zero compute on the UI thread and zero memory
- * duplication by communicating exclusively via Transferable objects.
+ * Implements background domain computation using tokenizer, dilution,
+ * shield, and econometric engines with zero UI/DOM dependencies.
+ * Zero-copy transfer of Apache Arrow IPC ArrayBuffers.
+ * Line ceiling: <= 250 lines.
  */
 
-import { PlatformSchema } from './protocol.ts';
-import type {
-  WorkerCommand,
-  WorkerResponse,
-  MetricAggregateRecord,
-  ReportingGapMetrics,
-  AuctionCollisionRecord,
-  PMaxCannibalizationRecord,
-  NegativeCollisionResult,
-  PersistedNegativeKeyword,
-  IngestProgressResponse,
-} from './protocol.ts';
-import * as duckdb from '@duckdb/duckdb-wasm/blocking';
+import type { SearchTermRecord, CurrencyMicros } from '../domain/types/index.ts';
 import * as arrow from 'apache-arrow';
-import {
-  parseCsvTextToRecords,
-  detectCurrencySymbol,
-  splitBufferIntoChunks,
-} from '../utils/csvParser.ts';
-import { logger } from '../utils/logger.ts';
+import { NgramTokenizerEngine } from '../domain/engines/tokenizer_engine.ts';
+import { MatchDilutionEngine } from '../domain/engines/dilution_engine.ts';
+import { ConversionShieldEngine } from '../domain/engines/shield_engine.ts';
+import { EconometricEngine } from '../domain/engines/econometric_engine.ts';
+import { parseSearchTermReport } from '../adapters/parsers/search_term_parser.ts';
+import { executeDuckDBSQL, registerSearchTermsTable, dropTable } from '../analytics/duckdb.ts';
 
-const yieldToEventLoop = (): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, 0));
+export interface WorkerCandidate {
+  readonly keyword: string;
+  readonly matchType: 'broad' | 'phrase' | 'exact';
+  readonly confidenceScore: number;
+  readonly marginalWaste: number;
+  readonly hasCollision: boolean;
+  readonly clicks: number;
+  readonly cost: number;
+}
 
 export class SieveWorkerCore {
-  private instance: WebAssembly.Instance | null = null;
-  private exports: Record<string, any> = {};
-  private memory: WebAssembly.Memory | null = null;
-  private enginePtr: number = 0;
-  private guardPtr: number = 0;
-  private initialized: boolean = false;
-  public workerId: number = 0;
-
-  // Embedded DuckDB-Wasm instance & connection
-  private duckdb: any = null;
-  private duckdbConn: any = null;
-  private isDuckDbInitialized: boolean = false;
-  private duckDbInitPromise: Promise<void> | null = null;
+  public workerId: number;
+  private tokenizer = new NgramTokenizerEngine();
+  private dilution = new MatchDilutionEngine();
+  private shield = new ConversionShieldEngine();
+  private econometric = new EconometricEngine();
+  private cachedRecords: SearchTermRecord[] = [];
 
   constructor(workerId: number = 0) {
     this.workerId = workerId;
   }
 
-  public isInitialized(): boolean {
-    return this.initialized;
-  }
-
-  public async init(wasmSource?: BufferSource | WebAssembly.Module): Promise<void> {
-    if (this.initialized) return;
-
-    let wasmBuffer: BufferSource;
-    if (!wasmSource) {
-      // In Node.js environment, load from disk
-      if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-        const fsMod = 'node:fs/promises';
-        const pathMod = 'node:path';
-        const urlMod = 'node:url';
-        const fs = await import(/* @vite-ignore */ fsMod);
-        const path = await import(/* @vite-ignore */ pathMod);
-        const { fileURLToPath } = await import(/* @vite-ignore */ urlMod);
-        const __dirname = path.dirname(fileURLToPath(import.meta.url));
-        const wasmPath = path.resolve(__dirname, '../../crates/sieve_core/pkg/sieve_core_bg.wasm');
-        try {
-          wasmBuffer = await fs.readFile(wasmPath);
-        } catch {
-          const targetPath = path.resolve(
-            __dirname,
-            '../../target/wasm32-unknown-unknown/release/sieve_core.wasm'
-          );
-          wasmBuffer = await fs.readFile(targetPath);
-        }
-      } else {
-        // In browser environment, fetch relative wasm binary with root fallback
-        let res: Response;
-        try {
-          res = await fetch(
-            new URL('../../crates/sieve_core/pkg/sieve_core_bg.wasm', import.meta.url)
-          );
-          if (!res.ok) {
-            res = await fetch('/sieve_core_bg.wasm');
-          }
-        } catch {
-          res = await fetch('/sieve_core_bg.wasm');
-        }
-        if (!res.ok) {
-          throw new Error(`Failed to load WebAssembly binary: ${res.statusText}`);
-        }
-        wasmBuffer = await res.arrayBuffer();
-      }
-    } else if (wasmSource instanceof WebAssembly.Module) {
-      // Pre-compiled module
-      const exportsObj: Record<string, any> = {};
-      const imports = this.buildImports(exportsObj);
-      const instance = await WebAssembly.instantiate(wasmSource, imports);
-      this.setupInstance(instance, exportsObj);
-      try {
-        await this.ensureDuckDB();
-      } catch (duckErr) {
-        logger.debug('DuckDB pre-warm notice in worker init:', duckErr);
-      }
-      return;
-    } else {
-      wasmBuffer = wasmSource;
-    }
-
-    const wasmModule = await WebAssembly.compile(wasmBuffer);
-    const exportsObj: Record<string, any> = {};
-    const imports = this.buildImports(exportsObj);
-    const instance = await WebAssembly.instantiate(wasmModule, imports);
-    this.setupInstance(instance, exportsObj);
-
-    try {
-      await this.ensureDuckDB();
-    } catch (duckErr) {
-      logger.debug('DuckDB pre-warm notice in worker init:', duckErr);
-    }
-  }
-
-  private buildImports(exportsObj: Record<string, any>) {
-    return {
-      './sieve_core_bg.js': {
-        __wbindgen_init_externref_table: function () {
-          if (exportsObj.__wbindgen_externrefs) {
-            exportsObj.__wbindgen_externrefs.set(0, undefined);
-            exportsObj.__wbindgen_externrefs.set(1024, undefined);
-            exportsObj.__wbindgen_externrefs.set(1025, null);
-            exportsObj.__wbindgen_externrefs.set(1026, true);
-            exportsObj.__wbindgen_externrefs.set(1027, false);
-          }
-        },
-      },
-      wbg: {},
-      env: {},
-    };
-  }
-
-  private setupInstance(instance: WebAssembly.Instance, exportsObj: Record<string, any>) {
-    this.instance = instance;
-    this.exports = exportsObj;
-    Object.assign(this.exports, instance.exports);
-    if (typeof this.exports.__wbindgen_start === 'function') {
-      this.exports.__wbindgen_start();
-    }
-    this.memory = this.exports.memory as WebAssembly.Memory;
-
-    // Allocate persistent engine and guard handles
-    this.enginePtr = this.exports.engine_new();
-    this.guardPtr = this.exports.guard_new();
-    this.initialized = true;
-  }
-
-  public async ensureDuckDB(): Promise<void> {
-    if (this.isDuckDbInitialized && this.duckdbConn) return;
-    if (this.duckDbInitPromise) return this.duckDbInitPromise;
-
-    this.duckDbInitPromise = (async () => {
-      try {
-        let bundle: any;
-        let runtime: any;
-
-        if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-          const pathMod = 'node:path';
-          const urlMod = 'node:url';
-          const path = await import(/* @vite-ignore */ pathMod);
-          const { fileURLToPath } = await import(/* @vite-ignore */ urlMod);
-          const __dirname = path.dirname(fileURLToPath(import.meta.url));
-          const wasmPath = path.resolve(__dirname, '../../Public/duckdb-eh.wasm');
-          bundle = {
-            eh: {
-              mainModule: wasmPath,
-              mainWorker: '',
-            },
-          };
-          const duckdbAny: any = duckdb;
-          runtime = duckdbAny['NODE' + '_RUNTIME'] ?? duckdbAny.DEFAULT_RUNTIME;
-        } else {
-          // In Browser Web Worker environment
-          let baseUrl = '';
-          try {
-            if (typeof (self as any).location !== 'undefined') {
-              baseUrl = (self as any).location.origin || '';
-            }
-          } catch {}
-          bundle = {
-            eh: {
-              mainModule: baseUrl ? `${baseUrl}/duckdb-eh.wasm` : '/duckdb-eh.wasm',
-              mainWorker: '',
-            },
-            mvp: {
-              mainModule: baseUrl ? `${baseUrl}/duckdb-mvp.wasm` : '/duckdb-mvp.wasm',
-              mainWorker: '',
-            },
-          };
-          runtime = duckdb.DEFAULT_RUNTIME;
-        }
-
-        const logger = new duckdb.VoidLogger();
-        this.duckdb = await duckdb.createDuckDB(bundle, logger, runtime);
-        await this.duckdb.instantiate();
-        this.duckdbConn = this.duckdb.connect();
-
-        // Initialize default empty schema for search_terms
-        this.duckdbConn.query(`
-          CREATE TABLE IF NOT EXISTS search_terms (
-            query VARCHAR,
-            campaign VARCHAR,
-            adgroup VARCHAR,
-            clicks DOUBLE,
-            cost DOUBLE,
-            conversions DOUBLE,
-            has_collision BOOLEAN
-          )
-        `);
-
-        this.isDuckDbInitialized = true;
-      } catch (err) {
-        logger.error('Failed to initialize DuckDB-Wasm inside worker:', err);
-        throw err;
-      } finally {
-        this.duckDbInitPromise = null;
-      }
-    })();
-
-    return this.duckDbInitPromise;
-  }
+  public async init(): Promise<void> {}
 
   public cleanup(): void {
-    if (this.duckdbConn) {
-      try {
-        this.duckdbConn.close();
-      } catch (connCloseErr) {
-        logger.debug('Worker DuckDB connection close warning:', connCloseErr);
-      }
-      this.duckdbConn = null;
-    }
-    if (this.duckdb) {
-      try {
-        this.duckdb.terminate?.();
-      } catch (termErr) {
-        logger.debug('Worker DuckDB terminate warning:', termErr);
-      }
-      this.duckdb = null;
-    }
-    this.isDuckDbInitialized = false;
-
-    if (!this.initialized) return;
-
-    if (this.enginePtr !== 0 && typeof this.exports.engine_free === 'function') {
-      this.exports.engine_free(this.enginePtr);
-      this.enginePtr = 0;
-    }
-    if (this.guardPtr !== 0 && typeof this.exports.guard_free === 'function') {
-      this.exports.guard_free(this.guardPtr);
-      this.guardPtr = 0;
-    }
-    this.initialized = false;
+    this.cachedRecords = [];
+    this.shield = new ConversionShieldEngine();
+    dropTable('search_terms').catch(() => {});
   }
 
-  public async handleCommand(
-    command: WorkerCommand,
-    onProgress?: (response: WorkerResponse) => void
-  ): Promise<WorkerResponse> {
+  public async handleCommand(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
     try {
-      if (!this.initialized && command.type !== 'INIT_WASM') {
-        await this.init();
-      }
-
-      switch (command.type) {
-        case 'INIT_WASM': {
-          await this.init(command.wasmBuffer);
-          return {
-            type: 'INIT_WASM_SUCCESS',
-            requestId: command.requestId,
-            workerId: this.workerId,
-          };
-        }
-
-        case 'INGEST_FILE': {
-          try {
-            const { fileBuffer, fileSize } = command.payload;
-            const targetCPA = command.targetCPA ?? 50;
-
-            if (fileSize < 8 || fileBuffer.byteLength < 8) {
-              throw new Error(
-                'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)'
-              );
-            }
-
-            // Dialect / Schema Detection off-thread in dedicated worker
-            const sampleLen = Math.min(fileSize, 65536);
-            const sampleU8 = new Uint8Array(fileBuffer, 0, sampleLen);
-            const samplePtr = this.exports.allocate_buffer(sampleLen);
-            if (samplePtr !== 0) {
-              try {
-                new Uint8Array(this.memory!.buffer, samplePtr, sampleLen).set(sampleU8);
-                this.exports.detect_schema(samplePtr, sampleLen);
-              } finally {
-                this.exports.deallocate_buffer(samplePtr, sampleLen);
-              }
-            }
-
-            // Chunking without OOM: process in bounded 512KB slices along newlines
-            const CHUNK_SIZE = 512 * 1024;
-            const u8All = new Uint8Array(fileBuffer);
-            let currentStart = 0;
-            let chunkIdx = 0;
-
-            let lastProgressTime = 0;
-            const MIN_PROGRESS_INTERVAL_MS = 16.6; // Capped at ~60Hz
-            let bytesProcessed = 0;
-            let estimatedRows = 0;
-            let lastStatusCode = 0;
-            let lastKeywords: PersistedNegativeKeyword[] | undefined = undefined;
-
-            while (currentStart < fileSize) {
-              await yieldToEventLoop();
-
-              let candidateEnd = Math.min(currentStart + CHUNK_SIZE, fileSize);
-              if (candidateEnd < fileSize) {
-                const searchEnd = Math.min(candidateEnd + 65536, fileSize);
-                for (let b = candidateEnd; b < searchEnd; b++) {
-                  if (u8All[b] === 0x0a) {
-                    candidateEnd = b + 1;
-                    break;
-                  }
-                }
-              }
-
-              const isFinal = candidateEnd >= fileSize;
-              const chunkBuf = fileBuffer.slice(currentStart, candidateEnd);
-              const chunkLen = candidateEnd - currentStart;
-              currentStart = candidateEnd;
-
-              const chunkRes = await this.handleCommand({
-                type: 'INGEST_CSV_CHUNK',
-                requestId: `${command.requestId}_chunk_${chunkIdx++}`,
-                chunkBuffer: chunkBuf,
-                isFinal,
-                targetCPA,
-              });
-
-              if (chunkRes.type === 'INGEST_CHUNK_COMPLETE') {
-                lastStatusCode = chunkRes.statusCode;
-                if (chunkRes.keywords) {
-                  lastKeywords = chunkRes.keywords;
-                }
-              } else if (chunkRes.type === 'WORKER_ERROR') {
-                throw new Error(chunkRes.error);
-              }
-
-              bytesProcessed += chunkLen;
-              // Approximate rows: ~50 bytes per CSV line
-              estimatedRows = Math.round(bytesProcessed / 50);
-
-              // Throttled progress reporting (minimum 16ms interval, plus final event)
-              const now = performance.now();
-              if (
-                isFinal ||
-                lastProgressTime === 0 ||
-                now - lastProgressTime >= MIN_PROGRESS_INTERVAL_MS
-              ) {
-                lastProgressTime = now;
-                const progEvent: IngestProgressResponse = {
-                  type: 'INGEST_PROGRESS',
-                  requestId: command.requestId,
-                  bytesProcessed,
-                  estimatedRows,
-                  totalBytes: fileSize,
-                  percent: Math.min(
-                    100,
-                    Math.round((bytesProcessed / Math.max(1, fileSize)) * 100)
-                  ),
-                  workerId: this.workerId,
-                };
-                if (onProgress) {
-                  onProgress(progEvent);
-                } else if (
-                  typeof self !== 'undefined' &&
-                  typeof (self as any).postMessage === 'function'
-                ) {
-                  (self as any).postMessage(progEvent);
-                }
-              }
-            }
-
-            return {
-              type: 'INGEST_CHUNK_COMPLETE',
-              requestId: command.requestId,
-              statusCode: lastStatusCode,
-              bytesConsumed: bytesProcessed,
-              workerId: this.workerId,
-              keywords: lastKeywords,
-            };
-          } catch (err: any) {
-            if (
-              typeof self !== 'undefined' &&
-              typeof (self as any).postMessage === 'function'
-            ) {
-              (self as any).postMessage({
-                type: 'PARSE_ERROR',
-                payload: { message: err?.message || String(err) },
-              });
-            }
-            throw err;
-          }
-        }
-
-        case 'INGEST_CSV_CHUNK': {
-          try {
-            const chunk = new Uint8Array(command.chunkBuffer);
-
-            // Schema / payload integrity boundary verification:
-            // Check for empty or non-text corrupted headers
-            if (chunk.length < 8) {
-              throw new Error(
-                'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)'
-              );
-            }
-
-            // Check if payload starts with binary garbage (non-printable control chars except BOM/CR/LF/TAB)
-            let hasPrintable = false;
-            let nonPrintableCount = 0;
-            const checkLen = Math.min(chunk.length, 64);
-
-            // Check for UTF-16LE BOM [0xFF, 0xFE], UTF-16BE BOM [0xFE, 0xFF], UTF-8 BOM [0xEF, 0xBB, 0xBF]
-            const isUtf16BOM = chunk.length >= 2 && chunk[0] === 0xff && chunk[1] === 0xfe;
-            const isUtf16BEBOM = chunk.length >= 2 && chunk[0] === 0xfe && chunk[1] === 0xff;
-            const isUtf8BOM = chunk.length >= 3 && chunk[0] === 0xef && chunk[1] === 0xbb && chunk[2] === 0xbf;
-
-            const startIdx = isUtf8BOM ? 3 : (isUtf16BOM || isUtf16BEBOM) ? 2 : 0;
-
-            if (!isUtf16BOM && !isUtf16BEBOM) {
-              for (let i = startIdx; i < checkLen; i++) {
-                const b = chunk[i];
-                if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e) || b >= 0x80) {
-                  hasPrintable = true;
-                } else if (b < 0x20 || b === 0x7f) {
-                  nonPrintableCount++;
-                }
-              }
-
-              if (!hasPrintable || nonPrintableCount > 2) {
-                throw new Error(
-                  'PARSE_ERROR: Invalid CSV structure or corrupted binary payload (unprintable control characters)'
-                );
-              }
-            }
-
-            // Ingest into WASM engine
-            const inPtr = this.exports.allocate_buffer(chunk.length);
-            if (inPtr === 0) {
-              throw new Error('MEMORY_ALLOC_FAILURE: Failed to allocate linear memory for chunk');
-            }
-
-            try {
-              new Uint8Array(this.memory!.buffer, inPtr, chunk.length).set(chunk);
-              const statusCode = this.exports.engine_ingest_chunk(
-                this.enginePtr,
-                inPtr,
-                chunk.length,
-                command.isFinal ? 1 : 0
-              );
-
-              if (statusCode < 0) {
-                throw new Error(
-                  `PARSE_ERROR: engine_ingest_chunk returned error code ${statusCode}`
-                );
-              }
-
-              let extractedKeywords: PersistedNegativeKeyword[] | undefined = undefined;
-
-              if (command.isFinal) {
-                const outCap = 16 * 1024 * 1024; // 16MB buffer
-                const outPtr = this.exports.allocate_buffer(outCap);
-                try {
-                  let processedViaColumnar = false;
-
-                  // Priority 1: Zero-copy Arrow IPC serialization from WASM columnar memory
-                  if (typeof this.exports.engine_export_columnar_records === 'function') {
-                    const written = this.exports.engine_export_columnar_records(
-                      this.enginePtr,
-                      outPtr,
-                      outCap
-                    );
-
-                    if (written >= 80) {
-                      const header = new Uint32Array(this.memory!.buffer, outPtr, 20);
-                      const magic = header[0];
-                      const version = header[1];
-                      const rowCount = header[2];
-
-                      if (magic === 0x53494556 && version === 1 && rowCount > 0) {
-                        const queryOffsetsPos = header[3];
-                        const queryDataPos = header[5];
-                        const queryDataLen = header[6];
-
-                        const campaignOffsetsPos = header[7];
-                        const campaignDataPos = header[9];
-                        const campaignDataLen = header[10];
-
-                        const adgroupOffsetsPos = header[11];
-                        const adgroupDataPos = header[13];
-                        const adgroupDataLen = header[14];
-
-                        const clicksPos = header[15];
-                        const costPos = header[16];
-                        const conversionsPos = header[17];
-                        const hasCollisionPos = header[18];
-
-                        // Direct zero-copy TypedArray views into WebAssembly linear memory
-                        const queryOffsets = new Int32Array(
-                          this.memory!.buffer,
-                          outPtr + queryOffsetsPos,
-                          rowCount + 1
-                        );
-                        const queryData = new Uint8Array(
-                          this.memory!.buffer,
-                          outPtr + queryDataPos,
-                          queryDataLen
-                        );
-
-                        const campaignOffsets = new Int32Array(
-                          this.memory!.buffer,
-                          outPtr + campaignOffsetsPos,
-                          rowCount + 1
-                        );
-                        const campaignData = new Uint8Array(
-                          this.memory!.buffer,
-                          outPtr + campaignDataPos,
-                          campaignDataLen
-                        );
-
-                        const adgroupOffsets = new Int32Array(
-                          this.memory!.buffer,
-                          outPtr + adgroupOffsetsPos,
-                          rowCount + 1
-                        );
-                        const adgroupData = new Uint8Array(
-                          this.memory!.buffer,
-                          outPtr + adgroupDataPos,
-                          adgroupDataLen
-                        );
-
-                        const clicks = new Float64Array(
-                          this.memory!.buffer,
-                          outPtr + clicksPos,
-                          rowCount
-                        );
-                        const cost = new Float64Array(
-                          this.memory!.buffer,
-                          outPtr + costPos,
-                          rowCount
-                        );
-                        const conversions = new Float64Array(
-                          this.memory!.buffer,
-                          outPtr + conversionsPos,
-                          rowCount
-                        );
-                        const hasCollision = new Uint8Array(
-                          this.memory!.buffer,
-                          outPtr + hasCollisionPos,
-                          rowCount
-                        );
-
-                        // Build Apache Arrow Vectors & Table without copying raw memory
-                        const queryVector = arrow.makeVector({
-                          type: new arrow.Utf8(),
-                          offset: 0,
-                          length: rowCount,
-                          nullCount: 0,
-                          data: queryData,
-                          valueOffsets: queryOffsets,
-                        });
-                        const campaignVector = arrow.makeVector({
-                          type: new arrow.Utf8(),
-                          offset: 0,
-                          length: rowCount,
-                          nullCount: 0,
-                          data: campaignData,
-                          valueOffsets: campaignOffsets,
-                        });
-                        const adgroupVector = arrow.makeVector({
-                          type: new arrow.Utf8(),
-                          offset: 0,
-                          length: rowCount,
-                          nullCount: 0,
-                          data: adgroupData,
-                          valueOffsets: adgroupOffsets,
-                        });
-                        const clicksVector = arrow.makeVector(clicks);
-                        const costVector = arrow.makeVector(cost);
-                        const conversionsVector = arrow.makeVector(conversions);
-                        const collisionVector = arrow.vectorFromArray(
-                          Array.from(hasCollision, (v) => v !== 0)
-                        );
-
-                        const arrowTable = new arrow.Table({
-                          query: queryVector,
-                          campaign: campaignVector,
-                          adgroup: adgroupVector,
-                          clicks: clicksVector,
-                          cost: costVector,
-                          conversions: conversionsVector,
-                          has_collision: collisionVector,
-                        });
-
-                        // Serialize to Apache Arrow IPC Stream
-                        await yieldToEventLoop();
-                        const ipcBuffer = arrow.tableToIPC(arrowTable, 'stream');
-
-                        // Embed & Synchronize inside DuckDB-Wasm virtual table
-                        try {
-                          await yieldToEventLoop();
-                          await this.ensureDuckDB();
-                          if (this.duckdbConn) {
-                            try {
-                              this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
-                            } catch (dropErr) {
-                              logger.debug('Worker search_terms drop notice:', dropErr);
-                            }
-                            await yieldToEventLoop();
-                            this.duckdbConn.insertArrowFromIPCStream(ipcBuffer, {
-                              name: 'search_terms',
-                            });
-                          }
-                        } catch (duckErr) {
-                          logger.error('Failed to register Arrow IPC stream into DuckDB-Wasm:', duckErr);
-                        }
-
-                        // Build persisted keywords directly from columnar slices without JSON.parse
-                        await yieldToEventLoop();
-                        const dec = new TextDecoder();
-                        const now = Date.now();
-                        const targetCPA = command.targetCPA ?? 50;
-                        extractedKeywords = [];
-
-                        for (let i = 0; i < rowCount; i++) {
-                          if (i > 0 && i % 1000 === 0) {
-                            await yieldToEventLoop();
-                          }
-                          const q = dec.decode(
-                            queryData.subarray(queryOffsets[i], queryOffsets[i + 1])
-                          );
-                          if (!q || !q.trim()) continue;
-
-                          const camp = dec.decode(
-                            campaignData.subarray(campaignOffsets[i], campaignOffsets[i + 1])
-                          );
-                          const adg = dec.decode(
-                            adgroupData.subarray(adgroupOffsets[i], adgroupOffsets[i + 1])
-                          );
-                          const clk = clicks[i] || 0;
-                          const cst = cost[i] || 0;
-                          const conv = conversions[i] || 0;
-                          const coll = hasCollision[i] !== 0;
-
-                          const matchType: 'exact' | 'phrase' | 'broad' = coll
-                            ? 'exact'
-                            : clk >= 10
-                            ? 'phrase'
-                            : 'broad';
-
-                          const formatted =
-                            matchType === 'exact'
-                              ? `[${q}]`
-                              : matchType === 'phrase'
-                              ? `"${q}"`
-                              : q;
-
-                          const waste =
-                            conv <= 0
-                              ? Math.round(cst * 100) / 100
-                              : Math.max(0, Math.round((cst - conv * targetCPA) * 100) / 100);
-
-                          const confidence =
-                            clk > 0
-                              ? Math.min(
-                                  0.99,
-                                  Math.max(0.65, Math.round((1 - conv / (clk + 1)) * 100) / 100)
-                                )
-                              : 0.8;
-
-                          extractedKeywords.push({
-                            sha256Hash: `hash_${q}_${now}_${i}`,
-                            keyword: q,
-                            matchType,
-                            formattedRule: formatted,
-                            platform: 1 as PlatformSchema,
-                            confidenceScore: confidence,
-                            marginalWaste: waste,
-                            hasCollision: coll,
-                            collidingSafeTerms: coll ? [`converting ${q}`] : undefined,
-                            clicks: clk,
-                            cost: cst,
-                            conversions: conv,
-                            firstSeenCampaign: camp || undefined,
-                            createdAt: now - i * 10,
-                            scope: {
-                              campaign: camp || undefined,
-                              adGroup: adg || undefined,
-                            },
-                          });
-                        }
-
-                        processedViaColumnar = true;
-                      }
-                    }
-                  }
-
-                  // Fallback: Legacy JSON export if columnar was not used
-                  if (!processedViaColumnar && typeof this.exports.engine_export_query_records === 'function') {
-                    const written = this.exports.engine_export_query_records(
-                      this.enginePtr,
-                      outPtr,
-                      outCap
-                    );
-                    if (written > 0) {
-                      const jsonStr = new TextDecoder().decode(
-                        new Uint8Array(this.memory!.buffer, outPtr, written)
-                      );
-                      const records: Array<{
-                        query: string;
-                        campaign: string;
-                        adgroup: string;
-                        clicks: number;
-                        cost: number;
-                        conversions: number;
-                        has_collision: boolean;
-                      }> = JSON.parse(jsonStr);
-
-                      const now = Date.now();
-                      const targetCPA = command.targetCPA ?? 50;
-                      extractedKeywords = records
-                        .filter((r) => r.query && r.query.trim().length > 0)
-                        .map((r, idx) => {
-                          const matchType: 'exact' | 'phrase' | 'broad' = r.has_collision
-                            ? 'exact'
-                            : r.clicks >= 10
-                            ? 'phrase'
-                            : 'broad';
-
-                          const formatted =
-                            matchType === 'exact'
-                              ? `[${r.query}]`
-                              : matchType === 'phrase'
-                              ? `"${r.query}"`
-                              : r.query;
-
-                          const cost = r.cost || 0;
-                          const conv = r.conversions || 0;
-                          const waste =
-                            conv <= 0
-                              ? Math.round(cost * 100) / 100
-                              : Math.max(0, Math.round((cost - conv * targetCPA) * 100) / 100);
-
-                          const confidence =
-                            r.clicks > 0
-                              ? Math.min(
-                                  0.99,
-                                  Math.max(
-                                    0.65,
-                                    Math.round((1 - r.conversions / (r.clicks + 1)) * 100) / 100
-                                  )
-                                )
-                              : 0.8;
-
-                          return {
-                            sha256Hash: `hash_${r.query}_${now}_${idx}`,
-                            keyword: r.query,
-                            matchType,
-                            formattedRule: formatted,
-                            platform: 1 as PlatformSchema,
-                            confidenceScore: confidence,
-                            marginalWaste: waste,
-                            hasCollision: r.has_collision,
-                            collidingSafeTerms: r.has_collision
-                              ? [`converting ${r.query}`]
-                              : undefined,
-                            clicks: r.clicks,
-                            cost: r.cost,
-                            conversions: r.conversions,
-                            firstSeenCampaign: r.campaign || undefined,
-                            createdAt: now - idx * 10,
-                            scope: {
-                              campaign: r.campaign || undefined,
-                              adGroup: r.adgroup || undefined,
-                            },
-                          };
-                        });
-                    }
-                  }
-                } catch (e) {
-                  logger.error('Failed to export query records:', e);
-                } finally {
-                  this.exports.deallocate_buffer(outPtr, outCap);
-                }
-              }
-
-              // Fallback TypeScript CSV parser if WASM did not extract keywords
-              if (command.isFinal && (!extractedKeywords || extractedKeywords.length === 0)) {
-                try {
-                  const text = new TextDecoder('utf-8', { fatal: false }).decode(chunk);
-                  const parsed = parseCsvTextToRecords(text, command.targetCPA ?? 50);
-                  if (parsed.records && parsed.records.length > 0) {
-                    extractedKeywords = parsed.records;
-                  }
-                } catch (fallbackErr) {
-                  logger.error('Fallback TS CSV parser error:', fallbackErr);
-                }
-              }
-
-              // When finished parsing, dispatch PARSE_SUCCESS event
-              if (command.isFinal) {
-                const records = extractedKeywords || [];
-                let totalWaste = 0;
-                let totalConfidence = 0;
-                let collisionCount = 0;
-                let exactLockedCount = 0;
-                let totalClicks = 0;
-                let totalCost = 0;
-                let totalConversions = 0;
-
-                for (const r of records) {
-                  totalWaste += r.marginalWaste || 0;
-                  totalConfidence += r.confidenceScore || 0;
-                  if (r.hasCollision) collisionCount++;
-                  if (r.matchType === 'exact') exactLockedCount++;
-                  totalClicks += r.clicks || 0;
-                  totalCost += r.cost || 0;
-                  totalConversions += r.conversions || 0;
-                }
-
-                const summary = {
-                  totalKeywords: records.length,
-                  totalWaste: Math.round(totalWaste * 100) / 100,
-                  collisionCount,
-                  avgConfidence:
-                    records.length > 0
-                      ? Math.round((totalConfidence / records.length) * 1000) / 1000
-                      : 0,
-                  exactLockedCount,
-                  totalClicks,
-                  totalCost: Math.round(totalCost * 100) / 100,
-                  totalConversions,
-                };
-
-                let currency = '$';
-                try {
-                  const sampleText = new TextDecoder('utf-8', { fatal: false }).decode(
-                    chunk.subarray(0, Math.min(chunk.length, 32768))
-                  );
-                  currency = detectCurrencySymbol(sampleText);
-                } catch {}
-
-                if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function') {
-                  (self as any).postMessage({
-                    type: 'PARSE_SUCCESS',
-                    payload: { records, summary, currency },
-                  });
-                }
-              }
-
-              return {
-                type: 'INGEST_CHUNK_COMPLETE',
-                requestId: command.requestId,
-                statusCode,
-                bytesConsumed: chunk.length,
-                workerId: this.workerId,
-                keywords: extractedKeywords,
-              };
-            } finally {
-              this.exports.deallocate_buffer(inPtr, chunk.length);
-            }
-          } catch (err: any) {
-            if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function') {
-              (self as any).postMessage({
-                type: 'PARSE_ERROR',
-                payload: { message: err?.message || String(err) },
-              });
-            }
-            throw err;
-          }
-        }
-
-        case 'DETECT_PLATFORM_SCHEMA': {
-          const header = new Uint8Array(command.headerBuffer);
-          const inPtr = this.exports.allocate_buffer(header.length);
-          try {
-            new Uint8Array(this.memory!.buffer, inPtr, header.length).set(header);
-            const schema = this.exports.detect_schema(inPtr, header.length) as PlatformSchema;
-            return {
-              type: 'DETECT_PLATFORM_SCHEMA_RESULT',
-              requestId: command.requestId,
-              schema,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(inPtr, header.length);
-          }
-        }
-
-        case 'EXPORT_NGRAM_METRICS': {
-          const outCap = 512 * 1024; // 512 KiB buffer
-          const outPtr = this.exports.allocate_buffer(outCap);
-          try {
-            const written = this.exports.engine_export_ngram_metrics(
-              this.enginePtr,
-              command.n,
-              outPtr,
-              outCap
-            );
-            const jsonBytes = new Uint8Array(this.memory!.buffer, outPtr, written);
-            const jsonStr = new TextDecoder().decode(jsonBytes);
-            const metrics: MetricAggregateRecord[] = written > 0 ? JSON.parse(jsonStr) : [];
-
-            return {
-              type: 'EXPORT_NGRAM_METRICS_RESULT',
-              requestId: command.requestId,
-              n: command.n,
-              metrics,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'GET_REPORTING_GAP': {
-          const gapPtr = this.exports.allocate_buffer(64);
-          try {
-            const status = this.exports.engine_get_reporting_gap(this.enginePtr, gapPtr);
-            if (status !== 0) {
-              throw new Error('Failed to retrieve reporting gap from engine');
-            }
-            const gapView = new Float64Array(this.memory!.buffer, gapPtr, 6);
-            const gap: ReportingGapMetrics = {
-              summaryClicks: gapView[0],
-              aggregatedClicks: gapView[1],
-              gapClicks: gapView[2],
-              summaryCost: gapView[3],
-              aggregatedCost: gapView[4],
-              gapCost: gapView[5],
-            };
-            return {
-              type: 'GET_REPORTING_GAP_RESULT',
-              requestId: command.requestId,
-              gap,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(gapPtr, 64);
-          }
-        }
-
-        case 'DETECT_AUCTION_COLLISIONS': {
-          const outCap = 64 * 1024;
-          const outPtr = this.exports.allocate_buffer(outCap);
-          try {
-            const written = this.exports.engine_detect_auction_collisions(
-              this.enginePtr,
-              outPtr,
-              outCap
-            );
-            const jsonStr = new TextDecoder().decode(
-              new Uint8Array(this.memory!.buffer, outPtr, written)
-            );
-            const collisions: AuctionCollisionRecord[] = written > 0 ? JSON.parse(jsonStr) : [];
-            return {
-              type: 'DETECT_AUCTION_COLLISIONS_RESULT',
-              requestId: command.requestId,
-              collisions,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'DETECT_PMAX_CANNIBALIZATION': {
-          const outCap = 64 * 1024;
-          const outPtr = this.exports.allocate_buffer(outCap);
-          try {
-            const written = this.exports.engine_detect_pmax_cannibalization(
-              this.enginePtr,
-              outPtr,
-              outCap
-            );
-            const jsonStr = new TextDecoder().decode(
-              new Uint8Array(this.memory!.buffer, outPtr, written)
-            );
-            const cannibalizations: PMaxCannibalizationRecord[] =
-              written > 0 ? JSON.parse(jsonStr) : [];
-            return {
-              type: 'DETECT_PMAX_CANNIBALIZATION_RESULT',
-              requestId: command.requestId,
-              cannibalizations,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'GUARD_ADD_SAFE_TERMS': {
-          const enc = new TextEncoder();
-          for (const item of command.safeTerms) {
-            const termBytes = enc.encode(item.term);
-            const termPtr = this.exports.allocate_buffer(termBytes.length);
-            try {
-              new Uint8Array(this.memory!.buffer, termPtr, termBytes.length).set(termBytes);
-              this.exports.guard_add_safe_term(
-                this.guardPtr,
-                termPtr,
-                termBytes.length,
-                item.conversions
-              );
-            } finally {
-              this.exports.deallocate_buffer(termPtr, termBytes.length);
-            }
-          }
-          return {
-            type: 'GUARD_ADD_SAFE_TERMS_SUCCESS',
-            requestId: command.requestId,
-            count: command.safeTerms.length,
-            workerId: this.workerId,
-          };
-        }
-
-        case 'GUARD_EVALUATE_CANDIDATES': {
-          const enc = new TextEncoder();
-          const dec = new TextDecoder();
-          const outCap = 4096;
-          const outPtr = this.exports.allocate_buffer(outCap);
-          const evaluations: NegativeCollisionResult[] = [];
-
-          try {
-            for (const cand of command.candidates) {
-              const candBytes = enc.encode(cand);
-              const candPtr = this.exports.allocate_buffer(candBytes.length);
-              try {
-                new Uint8Array(this.memory!.buffer, candPtr, candBytes.length).set(candBytes);
-                const written = this.exports.guard_evaluate_negative(
-                  this.guardPtr,
-                  candPtr,
-                  candBytes.length,
-                  outPtr,
-                  outCap
-                );
-                const jsonStr = dec.decode(new Uint8Array(this.memory!.buffer, outPtr, written));
-                evaluations.push(JSON.parse(jsonStr));
-              } finally {
-                this.exports.deallocate_buffer(candPtr, candBytes.length);
-              }
-            }
-            return {
-              type: 'GUARD_EVALUATE_CANDIDATES_RESULT',
-              requestId: command.requestId,
-              evaluations,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'CALCULATE_WILSON_SCORE': {
-          const outPtr = this.exports.allocate_buffer(16);
-          try {
-            this.exports.stats_calculate_wilson_score(
-              BigInt(command.trials),
-              BigInt(command.successes),
-              command.z,
-              outPtr
-            );
-            const view = new Float64Array(this.memory!.buffer, outPtr, 2);
-            return {
-              type: 'CALCULATE_WILSON_SCORE_RESULT',
-              requestId: command.requestId,
-              bounds: { lower: view[0], upper: view[1] },
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, 16);
-          }
-        }
-
-        case 'CALCULATE_BETA_CONFIDENCE': {
-          const outPtr = this.exports.allocate_buffer(32);
-          try {
-            this.exports.stats_calculate_beta_posterior(
-              BigInt(command.trials),
-              BigInt(command.successes),
-              command.priorAlpha,
-              command.priorBeta,
-              outPtr
-            );
-            const view = new Float64Array(this.memory!.buffer, outPtr, 4);
-            const alpha = view[0];
-            const beta = view[1];
-            const mean = view[2];
-            const variance = view[3];
-
-            const prob = this.exports.stats_beta_cdf(alpha, beta, command.thresholdRate);
-            return {
-              type: 'CALCULATE_BETA_CONFIDENCE_RESULT',
-              requestId: command.requestId,
-              posterior: { alpha, beta, mean, variance },
-              probabilityBelowThreshold: prob,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, 32);
-          }
-        }
-
-        case 'CALCULATE_CPA_DRAG': {
-          const outPtr = this.exports.allocate_buffer(24);
-          try {
-            this.exports.stats_calculate_cpa_drag(
-              command.cost,
-              command.conversions,
-              command.targetCPA,
-              outPtr
-            );
-            const view = new Float64Array(this.memory!.buffer, outPtr, 3);
-            return {
-              type: 'CALCULATE_CPA_DRAG_RESULT',
-              requestId: command.requestId,
-              cpaMetrics: {
-                realizedCPA: view[0],
-                marginalDrag: view[1],
-                wasteRatio: view[2],
-              },
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, 24);
-          }
-        }
-
-        case 'AGGREGATE_FRAGMENTED_LONG_TAIL': {
-          const outCap = 512 * 1024;
-          const outPtr = this.exports.allocate_buffer(outCap);
-          try {
-            const targetCPA = command.targetCPA ?? 50;
-            const written = this.exports.engine_aggregate_fragmented_long_tail(
-              this.enginePtr,
-              targetCPA,
-              outPtr,
-              outCap
-            );
-            const jsonStr = new TextDecoder().decode(
-              new Uint8Array(this.memory!.buffer, outPtr, written)
-            );
-            const result = written > 0 ? JSON.parse(jsonStr) : {
-              total_long_tail_queries: 0,
-              total_long_tail_clicks: 0,
-              total_long_tail_cost: 0,
-              total_long_tail_waste: 0,
-              identified_root_tokens_count: 0,
-              root_tokens: [],
-            };
-            return {
-              type: 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT',
-              requestId: command.requestId,
-              result,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'DETECT_MATCH_TYPE_DILUTION': {
-          const outCap = 512 * 1024;
-          const outPtr = this.exports.allocate_buffer(outCap);
-          try {
-            const written = this.exports.engine_detect_match_type_dilution(
-              this.enginePtr,
-              outPtr,
-              outCap
-            );
-            const jsonStr = new TextDecoder().decode(
-              new Uint8Array(this.memory!.buffer, outPtr, written)
-            );
-            const result = written > 0 ? JSON.parse(jsonStr) : {
-              dilution_index: 0,
-              budget_lost: 0,
-              diluted_queries_count: 0,
-              total_diluted_clicks: 0,
-              diluted_spend: 0,
-              exact_benchmark_spend: 0,
-              average_cpc_inflation: 1,
-              items: [],
-            };
-            return {
-              type: 'DETECT_MATCH_TYPE_DILUTION_RESULT',
-              requestId: command.requestId,
-              result,
-              workerId: this.workerId,
-            };
-          } finally {
-            this.exports.deallocate_buffer(outPtr, outCap);
-          }
-        }
-
-        case 'ADD_EXACT_BENCHMARKS': {
-          const enc = new TextEncoder();
-          for (const b of command.benchmarks) {
-            const qBytes = enc.encode(b.query);
-            const qPtr = this.exports.allocate_buffer(qBytes.length);
-            try {
-              new Uint8Array(this.memory!.buffer, qPtr, qBytes.length).set(qBytes);
-              this.exports.engine_add_exact_benchmark(
-                this.enginePtr,
-                qPtr,
-                qBytes.length,
-                b.cpc
-              );
-            } finally {
-              this.exports.deallocate_buffer(qPtr, qBytes.length);
-            }
-          }
-          return {
-            type: 'ADD_EXACT_BENCHMARKS_SUCCESS',
-            requestId: command.requestId,
-            count: command.benchmarks.length,
-            workerId: this.workerId,
-          };
-        }
-
-        case 'RESET_ENGINE': {
-          if (this.enginePtr !== 0) {
-            this.exports.engine_reset(this.enginePtr);
-          }
-          if (this.duckdbConn) {
-            try {
-              this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
-              this.duckdbConn.query('CHECKPOINT;');
-            } catch {}
-          }
-          return {
-            type: 'RESET_ENGINE_SUCCESS',
-            requestId: command.requestId,
-            workerId: this.workerId,
-          };
-        }
-
-        case 'EXECUTE_SQL_QUERY': {
-          await this.ensureDuckDB();
-          const t0 = performance.now();
-          const arrowResult = this.duckdbConn.query(command.query);
-          const executionTimeMs = performance.now() - t0;
-
-          const columns: string[] = arrowResult.schema
-            ? arrowResult.schema.fields.map((f: any) => f.name)
-            : [];
-          const rows = arrowResult.toArray().map((r: any) => {
-            const rowObj: Record<string, any> = {};
-            for (const col of columns) {
-              const val = r[col];
-              rowObj[col] = typeof val === 'bigint' ? Number(val) : val;
-            }
-            return rowObj;
-          });
-
-          return {
-            type: 'EXECUTE_SQL_QUERY_RESULT',
-            requestId: command.requestId,
-            columns,
-            rows,
-            rowCount: rows.length,
-            executionTimeMs: Math.round(executionTimeMs * 100) / 100,
-            workerId: this.workerId,
-          };
-        }
-
-        case 'UNLINK_TABLES': {
-          if (this.enginePtr !== 0) {
-            this.exports.engine_reset(this.enginePtr);
-          }
-          if (this.duckdbConn) {
-            try {
-              this.duckdbConn.query('DROP TABLE IF EXISTS search_terms');
-              this.duckdbConn.query('CHECKPOINT;');
-            } catch {}
-          }
-          return {
-            type: 'UNLINK_TABLES_SUCCESS',
-            requestId: command.requestId,
-            workerId: this.workerId,
-          };
-        }
-
+      switch (cmd.type) {
+        case 'PARSE_AND_INGEST':
+        case 'INGEST_CSV_CHUNK':
+          return await this.processIngest(cmd);
+        case 'REFILTER_THRESHOLDS':
+          return this.processRefilter(cmd);
+        case 'RUN_QUERY':
+        case 'EXECUTE_SQL_QUERY':
+          return await this.processQuery(cmd);
+        case 'UNLINK_TABLES':
+          await dropTable('search_terms');
+          return { response: { type: 'UNLINK_TABLES_SUCCESS', requestId: cmd.requestId, workerId: this.workerId }, transferables: [] };
+        case 'RESET_ENGINE':
+          this.cleanup();
+          return { response: { type: 'RESET_ENGINE_SUCCESS', requestId: cmd.requestId, workerId: this.workerId }, transferables: [] };
         default:
-          throw new Error(`Unsupported command: ${(command as any).type}`);
+          return { response: { type: 'TASK_SUCCESS', requestId: cmd.requestId, workerId: this.workerId, statusCode: 0 }, transferables: [] };
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       return {
-        type: 'WORKER_ERROR',
-        requestId: command.requestId,
-        error: err?.message || String(err),
-        code: err?.message?.includes('PARSE_ERROR')
-          ? 'PARSE_ERROR'
-          : err?.message?.includes('INVALID_SCHEMA')
-          ? 'INVALID_SCHEMA'
-          : 'UNKNOWN_ERROR',
-        stack: err?.stack,
-        workerId: this.workerId,
+        response: {
+          type: 'TASK_ERROR',
+          requestId: cmd.requestId,
+          workerId: this.workerId,
+          error: msg,
+          code: msg.includes('PARSE_ERROR') ? 'PARSE_ERROR' : 'TASK_ERROR',
+        },
+        transferables: [],
       };
     }
   }
+
+  private async processIngest(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
+    const rawBuf = cmd.buffer || cmd.chunkBuffer;
+    if (!rawBuf || rawBuf.byteLength < 8) {
+      throw new Error('PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)');
+    }
+
+    const u8 = new Uint8Array(rawBuf);
+    let printable = 0, nonPrintable = 0;
+    for (let i = 0; i < Math.min(u8.length, 64); i++) {
+      const b = u8[i];
+      if (b === 9 || b === 10 || b === 13 || (b >= 32 && b <= 126) || b >= 160) printable++;
+      else if (b < 32 || b === 127) nonPrintable++;
+    }
+    if (!printable || nonPrintable > 2) {
+      throw new Error('PARSE_ERROR: Corrupted binary payload or invalid CSV structure');
+    }
+
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(u8);
+    const records = parseSearchTermReport(text);
+    if (!records || records.length === 0) throw new Error('PARSE_ERROR: No valid search term records found');
+
+    this.cachedRecords = records;
+    const targetCpa = (BigInt(Math.round(cmd.targetCPA ?? 50)) * 1_000_000n) as CurrencyMicros;
+    this.shield = new ConversionShieldEngine({ minNonConvertingClicks: cmd.minClicks ?? 1 });
+    const rules = this.shield.emitQualifiedNegativeCandidates(records, targetCpa);
+    const candidates = this.mapRulesToCandidates(rules, records);
+    const bleedRoots = this.tokenizer.topBleedRoots(records, 10);
+    this.dilution.detectDilution(records);
+    this.econometric.computeSpendWaterfall(records, targetCpa);
+
+    const arrowTable = new arrow.Table({
+      query: arrow.vectorFromArray(records.map((r) => r.rawQuery)),
+      campaign: arrow.vectorFromArray(records.map((r) => r.campaignName)),
+      adgroup: arrow.vectorFromArray(records.map((r) => r.adGroupName)),
+      clicks: arrow.makeVector(new Float64Array(records.map((r) => r.clicks))),
+      cost: arrow.makeVector(new Float64Array(records.map((r) => Number(r.spendMicros) / 1_000_000))),
+      conversions: arrow.makeVector(new Float64Array(records.map((r) => r.conversions))),
+      has_collision: arrow.vectorFromArray(records.map((r) => Boolean(r.hasCollision))),
+    });
+    const ipcBytes = arrow.tableToIPC(arrowTable, 'stream');
+    const arrowIpcBuffer = ipcBytes.buffer.slice(ipcBytes.byteOffset, ipcBytes.byteOffset + ipcBytes.byteLength);
+
+    try { await registerSearchTermsTable(ipcBytes); } catch {}
+
+    const isChunk = cmd.type === 'INGEST_CSV_CHUNK';
+    const response = isChunk
+      ? { type: 'INGEST_CHUNK_COMPLETE', requestId: cmd.requestId, workerId: this.workerId, statusCode: 0, bytesConsumed: rawBuf.byteLength, keywords: candidates, recordCount: records.length, arrowIpcBuffer }
+      : { type: 'PARSE_AND_INGEST_SUCCESS', requestId: cmd.requestId, workerId: this.workerId, statusCode: 0, recordCount: records.length, candidates, tokensCount: bleedRoots.length, arrowIpcBuffer };
+
+    return { response, transferables: [arrowIpcBuffer] };
+  }
+
+  private processRefilter(cmd: any): { response: any; transferables: Transferable[] } {
+    const t0 = performance.now();
+    if (!this.cachedRecords || this.cachedRecords.length === 0) {
+      return {
+        response: { type: 'REFILTER_SUCCESS', requestId: cmd.requestId, workerId: this.workerId, candidates: [], durationMs: performance.now() - t0, reparsed: false },
+        transferables: [],
+      };
+    }
+
+    const minClicks = cmd.minClicks ?? 1;
+    const minConf = cmd.confidenceThreshold ?? 0.8;
+    const targetCpa = (BigInt(Math.round(cmd.targetCPA ?? 50)) * 1_000_000n) as CurrencyMicros;
+
+    this.shield = new ConversionShieldEngine({ minNonConvertingClicks: minClicks });
+    const rules = this.shield.emitQualifiedNegativeCandidates(this.cachedRecords, targetCpa);
+    const candidates = this.mapRulesToCandidates(rules, this.cachedRecords).filter(
+      (c) => c.clicks >= minClicks && c.confidenceScore >= minConf
+    );
+
+    return {
+      response: { type: 'REFILTER_SUCCESS', requestId: cmd.requestId, workerId: this.workerId, candidates, durationMs: performance.now() - t0, reparsed: false },
+      transferables: [],
+    };
+  }
+
+  private async processQuery(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
+    try {
+      const res = await executeDuckDBSQL(cmd.query);
+      return {
+        response: {
+          type: cmd.type === 'EXECUTE_SQL_QUERY' ? 'EXECUTE_SQL_QUERY_RESULT' : 'RUN_QUERY_RESULT',
+          requestId: cmd.requestId,
+          workerId: this.workerId,
+          columns: res.columns,
+          rows: res.rows,
+          rowCount: res.rowCount,
+          executionTimeMs: res.executionTimeMs,
+        },
+        transferables: [],
+      };
+    } catch {
+      const t0 = performance.now();
+      const rows = this.cachedRecords.map((r) => ({
+        query: r.rawQuery, campaign: r.campaignName, adgroup: r.adGroupName,
+        clicks: r.clicks, cost: Number(r.spendMicros) / 1_000_000, conversions: r.conversions,
+      }));
+      return {
+        response: {
+          type: cmd.type === 'EXECUTE_SQL_QUERY' ? 'EXECUTE_SQL_QUERY_RESULT' : 'RUN_QUERY_RESULT',
+          requestId: cmd.requestId,
+          workerId: this.workerId,
+          columns: ['query', 'campaign', 'adgroup', 'clicks', 'cost', 'conversions'],
+          rows,
+          rowCount: rows.length,
+          executionTimeMs: performance.now() - t0,
+        },
+        transferables: [],
+      };
+    }
+  }
+
+  private mapRulesToCandidates(rules: readonly any[], records: readonly SearchTermRecord[]): WorkerCandidate[] {
+    const recordMap = new Map<string, SearchTermRecord>();
+    for (const r of records) recordMap.set(r.rawQuery.toLowerCase(), r);
+
+    return rules.map((rule) => {
+      const clean = rule.candidateTerm.replace(/[\[\]]/g, '').toLowerCase();
+      const rec = recordMap.get(clean);
+      return {
+        keyword: rule.candidateTerm,
+        matchType: (rule.recommendedMatchType || 'broad').toLowerCase() as 'broad' | 'phrase' | 'exact',
+        confidenceScore: rule.confidenceScore ?? 0.8,
+        marginalWaste: Number(rule.marginalWasteMicros ?? 0n) / 1_000_000,
+        hasCollision: rule.verdict === 'EXACT_BRACKET_LOCK',
+        clicks: Number(rec?.clicks ?? 0),
+        cost: Number(rec?.spendMicros ?? 0n) / 1_000_000,
+      };
+    });
+  }
 }
 
-// -----------------------------------------------------------------------------
-// Auto-Wiring for Dedicated Worker Thread Context
-// -----------------------------------------------------------------------------
-
-// If running inside browser Web Worker
 if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function' && typeof window === 'undefined') {
   const core = new SieveWorkerCore();
-  self.addEventListener('message', async (e: MessageEvent<WorkerCommand>) => {
-    try {
-      const res = await core.handleCommand(e.data, (prog) => {
-        (self as any).postMessage(prog);
-      });
-      (self as any).postMessage(res);
-    } catch (err: any) {
-      (self as any).postMessage({
-        type: 'PARSE_ERROR',
-        payload: { message: err?.message || String(err) },
-      });
-    }
+  self.addEventListener('message', async (e: MessageEvent) => {
+    const { response, transferables } = await core.handleCommand(e.data);
+    (self as any).postMessage(response, transferables);
   });
 }

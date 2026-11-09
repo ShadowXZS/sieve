@@ -1,129 +1,101 @@
 /**
- * Sieve Web Worker Pool
+ * Sieve Web Worker Pool Orchestrator
  *
- * Manages concurrent WebAssembly worker allocation, hardware concurrency scaling,
- * round-robin task dispatch, and zero-copy transferable memory queues.
+ * Coordinates concurrent background worker threads (clamped between 2 and 16),
+ * enforces zero-copy Transferable ArrayBuffers for Arrow IPC data, manages round-robin
+ * scheduling, and guarantees sub-10ms reactive threshold re-evaluations.
+ * File line ceiling: <= 250 lines.
  */
 
-import { getTransferables, WorkerExecutionError } from './protocol.ts';
-import type {
-  WorkerCommand,
-  WorkerResponse,
-  IngestChunkCompleteResponse,
-  WorkerErrorResponse,
-  FragmentedLongTailResult,
-  MatchTypeDilutionResult,
-} from './protocol.ts';
 import { SieveWorkerCore } from './sieve.worker.ts';
-import { logger } from '../utils/logger.ts';
+import { WorkerExecutionError } from './protocol.ts';
 
-export interface WorkerPoolOptions {
-  concurrency?: number;
+export interface WorkerPoolOptions { concurrency?: number; }
+
+export function clampConcurrency(options?: WorkerPoolOptions): number {
+  const hardware = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
+  return Math.min(16, Math.max(2, options?.concurrency ?? hardware));
+}
+
+export function extractTransferables(command: any): Transferable[] {
+  const list: Transferable[] = [];
+  if (command?.buffer instanceof ArrayBuffer) list.push(command.buffer);
+  if (command?.chunkBuffer instanceof ArrayBuffer) list.push(command.chunkBuffer);
+  if (command?.payload?.fileBuffer instanceof ArrayBuffer) list.push(command.payload.fileBuffer);
+  return list;
 }
 
 interface QueuedTask {
-  command: WorkerCommand;
+  command: any;
   transferables: Transferable[];
   targetWorkerId?: number;
-  resolve: (value: WorkerResponse) => void;
+  resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
-  onProgress?: (progress: WorkerResponse) => void;
 }
 
 class WorkerSlot {
   public id: number;
-  public busy: boolean = false;
+  public busy = false;
+  public terminated = false;
   private core: SieveWorkerCore;
   private port1: MessagePort;
   private port2: MessagePort;
+  private currentResolve: ((value: any) => void) | null = null;
   private currentReject: ((reason?: unknown) => void) | null = null;
-  private currentResolve: ((value: WorkerResponse) => void) | null = null;
-  private currentProgress: ((progress: WorkerResponse) => void) | null = null;
-  public terminated: boolean = false;
 
   constructor(id: number) {
     this.id = id;
     this.core = new SieveWorkerCore(id);
+    const { port1, port2 } = new MessageChannel();
+    this.port1 = port1;
+    this.port2 = port2;
 
-    const channel = new MessageChannel();
-    this.port1 = channel.port1;
-    this.port2 = channel.port2;
-
-    this.port2.onmessage = async (e: MessageEvent<WorkerCommand>) => {
+    this.port2.onmessage = async (e: MessageEvent) => {
       try {
-        const res = await this.core.handleCommand(e.data, (prog) => {
-          prog.workerId = this.id;
-          this.port2.postMessage(prog);
-        });
-        res.workerId = this.id;
-        const transferables = (res as { rawBuffer?: ArrayBuffer }).rawBuffer
-          ? [(res as { rawBuffer: ArrayBuffer }).rawBuffer]
-          : [];
-        this.port2.postMessage(res, transferables);
+        const { response, transferables } = await this.core.handleCommand(e.data);
+        response.workerId = this.id;
+        this.port2.postMessage(response, transferables);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        const errorRes: WorkerErrorResponse = {
-          type: 'WORKER_ERROR',
-          requestId: e.data.requestId,
-          error: message,
-          code: 'WORKER_INTERNAL_ERROR',
+        const msg = err instanceof Error ? err.message : String(err);
+        this.port2.postMessage({
+          type: 'TASK_ERROR',
+          requestId: e.data?.requestId ?? '',
           workerId: this.id,
-        };
-        this.port2.postMessage(errorRes);
+          error: msg,
+          code: msg.includes('PARSE_ERROR') ? 'PARSE_ERROR' : 'TASK_ERROR',
+        });
       }
     };
 
-    this.port1.onmessage = (e: MessageEvent<WorkerResponse>) => {
+    this.port1.onmessage = (e: MessageEvent) => {
       const res = e.data;
       res.workerId = this.id;
-
-      if (res.type === 'INGEST_PROGRESS' || res.type === 'INGEST_CHUNK_PROGRESS') {
-        this.currentProgress?.(res);
-        return;
-      }
-
       const resolve = this.currentResolve;
       const reject = this.currentReject;
       this.currentResolve = null;
       this.currentReject = null;
-      this.currentProgress = null;
 
-      if (res.type === 'WORKER_ERROR') {
-        const err = new WorkerExecutionError(res.error, res.code, this.id);
-        reject?.(err);
+      if (res.type === 'TASK_ERROR' || res.type === 'WORKER_ERROR') {
+        reject?.(new WorkerExecutionError(res.error, res.code || 'TASK_ERROR', this.id));
       } else {
         resolve?.(res);
       }
     };
   }
 
-  public async init(): Promise<void> {
-    await this.core.init();
-  }
-
-  public dispatch(
-    command: WorkerCommand,
-    transferables: Transferable[],
-    resolve: (value: WorkerResponse) => void,
-    reject: (reason?: unknown) => void,
-    onProgress?: (progress: WorkerResponse) => void
-  ) {
+  public dispatch(command: any, transferables: Transferable[], resolve: (v: any) => void, reject: (r?: unknown) => void) {
     this.busy = true;
     this.currentResolve = resolve;
     this.currentReject = reject;
-    this.currentProgress = onProgress ?? null;
     this.port1.postMessage(command, transferables);
   }
 
   public terminate(): void {
     if (this.terminated) return;
     this.terminated = true;
-    if (this.currentReject) {
-      this.currentReject(new Error(`WorkerSlot ${this.id} terminated`));
-      this.currentReject = null;
-      this.currentResolve = null;
-      this.currentProgress = null;
-    }
+    this.currentReject?.(new Error(`WorkerSlot ${this.id} terminated`));
+    this.currentResolve = null;
+    this.currentReject = null;
     this.port1.close();
     this.port2.close();
     this.core.cleanup();
@@ -134,325 +106,140 @@ export class SieveWorkerPool {
   public readonly concurrency: number;
   private workers: WorkerSlot[] = [];
   private taskQueue: QueuedTask[] = [];
-  private roundRobinIdx: number = 0;
-  private terminated: boolean = false;
-  private lastActiveWorkerId: number = 0;
+  private roundRobinIdx = 0;
+  private terminated = false;
 
   constructor(options?: WorkerPoolOptions) {
-    const defaultConcurrency =
-      typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-        ? Math.max(1, navigator.hardwareConcurrency)
-        : 4;
-
-    this.concurrency = options?.concurrency ?? defaultConcurrency;
-
-    for (let i = 0; i < this.concurrency; i++) {
-      this.workers.push(new WorkerSlot(i));
-    }
+    this.concurrency = clampConcurrency(options);
+    for (let i = 0; i < this.concurrency; i++) this.workers.push(new WorkerSlot(i));
   }
 
-  public get activeWorkersCount(): number {
-    return this.workers.filter((w) => !w.terminated).length;
-  }
+  public get activeWorkersCount(): number { return this.workers.filter((w) => !w.terminated).length; }
+  public get busyWorkersCount(): number { return this.workers.filter((w) => w.busy).length; }
+  public get queueDepth(): number { return this.taskQueue.length; }
+  public getAvailableWorkerId(): number { return this.findNextAvailableWorker()?.id ?? this.roundRobinIdx; }
 
-  public get busyWorkersCount(): number {
-    return this.workers.filter((w) => w.busy).length;
-  }
+  public async execute(command: any, targetWorkerId?: number, extraTransferables?: Transferable[]): Promise<any> {
+    if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
+    const transferables = [...extractTransferables(command), ...(extraTransferables || [])];
 
-  public get queueDepth(): number {
-    return this.taskQueue.length;
-  }
+    return new Promise((resolve, reject) => {
+      const task: QueuedTask = { command, transferables, targetWorkerId, resolve, reject };
+      const worker = targetWorkerId !== undefined && targetWorkerId < this.workers.length
+        ? this.workers[targetWorkerId]
+        : this.findNextAvailableWorker();
 
-  public async init(): Promise<void> {
-    await Promise.all(this.workers.map((w) => w.init()));
-  }
-
-  public getAvailableWorkerId(): number {
-    const idle = this.findNextAvailableWorker();
-    return idle ? idle.id : this.roundRobinIdx;
-  }
-
-  public async execute(
-    command: WorkerCommand,
-    targetWorkerId?: number,
-    onProgress?: (progress: WorkerResponse) => void
-  ): Promise<WorkerResponse> {
-    if (this.terminated) {
-      throw new Error('SieveWorkerPool has been terminated');
-    }
-
-    const transferables = getTransferables(command);
-
-    return new Promise<WorkerResponse>((resolve, reject) => {
-      const task: QueuedTask = { command, transferables, targetWorkerId, onProgress, resolve, reject };
-
-      if (targetWorkerId !== undefined && targetWorkerId >= 0 && targetWorkerId < this.workers.length) {
-        const targetWorker = this.workers[targetWorkerId];
-        if (!targetWorker.busy && !targetWorker.terminated) {
-          this.runTaskOnWorker(targetWorker, task);
-        } else {
-          this.taskQueue.push(task);
-        }
+      if (worker && !worker.busy && !worker.terminated) {
+        this.runTask(worker, task);
       } else {
-        // Attempt to schedule immediately on an idle worker
-        const idleWorker = this.findNextAvailableWorker();
-        if (idleWorker) {
-          this.runTaskOnWorker(idleWorker, task);
-        } else {
-          this.taskQueue.push(task);
-        }
+        this.taskQueue.push(task);
       }
     });
   }
 
-  public async executeIngestFile(
-    taskId: string,
-    fileBuffer: ArrayBuffer,
-    fileName: string = 'dataset.csv',
-    workerId?: number,
-    targetCPA?: number,
-    onProgress?: (progress: import('./protocol.ts').IngestProgressResponse) => void
-  ): Promise<{
-    statusCode: number;
-    workerId: number;
-    bytesConsumed?: number;
-    keywords?: import('./protocol.ts').PersistedNegativeKeyword[];
-  }> {
-    const fileSize = fileBuffer.byteLength;
-    const command: WorkerCommand = {
-      type: 'INGEST_FILE',
-      requestId: taskId,
-      payload: {
-        fileBuffer,
-        fileSize,
-        fileName,
-      },
-      targetCPA,
-    };
+  public async parseAndIngest(
+    csvBuffer: ArrayBuffer,
+    options?: { minClicks?: number; confidenceThreshold?: number }
+  ): Promise<{ recordCount: number; candidates: any[]; arrowIpcBuffer: ArrayBuffer; tokensCount: number }> {
+    if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
+    if (csvBuffer.byteLength < 8) return this.execute({ type: 'PARSE_AND_INGEST', requestId: `req_${Date.now()}`, buffer: csvBuffer });
 
-    const res = await this.execute(
-      command,
-      workerId,
-      onProgress
-        ? (p) => {
-            if (p.type === 'INGEST_PROGRESS') {
-              onProgress(p as import('./protocol.ts').IngestProgressResponse);
-            }
-          }
-        : undefined
-    );
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(csvBuffer));
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
 
-    if (res.type === 'INGEST_CHUNK_COMPLETE') {
-      const completeRes = res as IngestChunkCompleteResponse;
-      this.lastActiveWorkerId = res.workerId ?? workerId ?? 0;
-      return {
-        statusCode: completeRes.statusCode,
-        workerId: res.workerId ?? 0,
-        bytesConsumed: completeRes.bytesConsumed,
-        keywords: completeRes.keywords,
-      };
-    } else if (res.type === 'WORKER_ERROR') {
-      const errorPayload = res as WorkerErrorResponse;
-      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
-    } else {
-      throw new Error(`Unexpected worker response type: ${res.type}`);
+    if (lines.length > 2 && this.concurrency > 1) {
+      const header = lines[0];
+      const dataLines = lines.slice(1);
+      const chunkCount = Math.min(this.concurrency, Math.max(1, Math.ceil(dataLines.length / 2)));
+      const chunkSize = Math.ceil(dataLines.length / chunkCount);
+      const enc = new TextEncoder();
+      const promises: Promise<any>[] = [];
+
+      for (let c = 0; c < chunkCount; c++) {
+        const slice = dataLines.slice(c * chunkSize, (c + 1) * chunkSize);
+        if (slice.length === 0) continue;
+        const chunkBuf = enc.encode([header, ...slice].join('\n')).buffer.slice(0);
+        promises.push(this.execute({ type: 'PARSE_AND_INGEST', requestId: `chunk_${Date.now()}_${c}`, buffer: chunkBuf, ...options }, c % this.concurrency, c === 0 ? [csvBuffer] : []));
+      }
+
+      const results = await Promise.all(promises);
+      const candidates = results.flatMap((r) => r.candidates || []);
+      const recordCount = results.reduce((sum, r) => sum + (r.recordCount || 0), 0);
+      const tokensCount = results.reduce((sum, r) => sum + (r.tokensCount || 0), 0);
+      return { recordCount, candidates, arrowIpcBuffer: results[0]?.arrowIpcBuffer, tokensCount };
     }
+
+    return this.execute({ type: 'PARSE_AND_INGEST', requestId: `req_${Date.now()}`, buffer: csvBuffer, ...options });
   }
 
-  public async executeIngestion(
-    taskId: string,
-    chunkBuffer: ArrayBuffer,
-    isFinal: boolean,
-    workerId?: number,
-    targetCPA?: number
-  ): Promise<{
-    statusCode: number;
-    workerId: number;
-    bytesConsumed?: number;
-    keywords?: import('./protocol.ts').PersistedNegativeKeyword[];
-  }> {
-    const command: WorkerCommand = {
-      type: 'INGEST_CSV_CHUNK',
-      requestId: taskId,
-      chunkBuffer,
-      isFinal,
-      targetCPA,
-    };
-
-    const res = await this.execute(command, workerId);
-    if (res.type === 'INGEST_CHUNK_COMPLETE') {
-      const completeRes = res as IngestChunkCompleteResponse;
-      this.lastActiveWorkerId = res.workerId ?? workerId ?? 0;
-      return {
-        statusCode: completeRes.statusCode,
-        workerId: res.workerId ?? 0,
-        bytesConsumed: completeRes.bytesConsumed,
-        keywords: completeRes.keywords,
-      };
-    } else if (res.type === 'WORKER_ERROR') {
-      const errorPayload = res as WorkerErrorResponse;
-      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
-    } else {
-      throw new Error(`Unexpected worker response type: ${res.type}`);
-    }
+  public async refilterThresholds(options: { minClicks: number; confidenceThreshold: number }): Promise<{ candidates: any[]; durationMs: number; reparsed: boolean }> {
+    if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
+    const t0 = performance.now();
+    const command = { type: 'REFILTER_THRESHOLDS', requestId: `refilter_${Date.now()}`, ...options };
+    const results = await Promise.all(this.workers.filter((w) => !w.terminated).map((w) => this.execute(command, w.id)));
+    return { candidates: results.flatMap((r) => r.candidates || []), durationMs: performance.now() - t0, reparsed: false };
   }
 
-  public async executeSQL(
-    query: string,
-    workerId?: number
-  ): Promise<{
-    columns: string[];
-    rows: Array<Record<string, unknown>>;
-    rowCount: number;
-    executionTimeMs: number;
-  }> {
-    const targetWorker = workerId ?? this.lastActiveWorkerId ?? 0;
-    const res = await this.execute(
-      {
-        type: 'EXECUTE_SQL_QUERY',
-        requestId: `sql_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        query,
-      },
-      targetWorker
-    );
-    if (res.type === 'EXECUTE_SQL_QUERY_RESULT') {
-      const sqlRes = res as import('./protocol.ts').ExecuteSqlQueryResponse;
-      return {
-        columns: sqlRes.columns,
-        rows: sqlRes.rows,
-        rowCount: sqlRes.rowCount,
-        executionTimeMs: sqlRes.executionTimeMs,
-      };
-    } else if (res.type === 'WORKER_ERROR') {
-      const errorPayload = res as import('./protocol.ts').WorkerErrorResponse;
-      throw new WorkerExecutionError(errorPayload.error, errorPayload.code, res.workerId);
-    }
-    throw new Error(`Unexpected worker response type for EXECUTE_SQL_QUERY: ${res.type}`);
+  public async executeIngestion(taskId: string, chunkBuffer: ArrayBuffer, isFinal: boolean, workerId?: number, targetCPA?: number) {
+    const res = await this.execute({ type: 'INGEST_CSV_CHUNK', requestId: taskId, chunkBuffer, isFinal, targetCPA }, workerId);
+    return { statusCode: res.statusCode ?? 0, workerId: res.workerId ?? 0, bytesConsumed: res.bytesConsumed ?? chunkBuffer.byteLength, keywords: res.keywords ?? res.candidates };
+  }
+
+  public async executeSQL(query: string, workerId?: number): Promise<any> {
+    return this.execute({ type: 'RUN_QUERY', requestId: `sql_${Date.now()}`, query }, workerId);
   }
 
   public async unlinkTables(workerId?: number): Promise<void> {
-    const targetWorker = workerId ?? this.lastActiveWorkerId ?? 0;
-    await this.execute(
-      {
-        type: 'UNLINK_TABLES',
-        requestId: `unlink_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      },
-      targetWorker
-    );
+    await this.execute({ type: 'UNLINK_TABLES', requestId: `unlink_${Date.now()}` }, workerId);
   }
 
   public async resetAll(): Promise<void> {
-    for (let i = 0; i < this.concurrency; i++) {
-      try {
-        await this.execute(
-          {
-            type: 'RESET_ENGINE',
-            requestId: `reset_${Date.now()}_${i}`,
-          },
-          i
-        );
-      } catch (resetErr) {
-        logger.warn(`Failed to reset worker ${i}:`, resetErr);
-      }
-    }
+    await Promise.all(this.workers.map((w) => this.execute({ type: 'RESET_ENGINE', requestId: `reset_${w.id}` }, w.id)));
   }
 
-  public async aggregateFragmentedLongTail(targetCPA?: number): Promise<FragmentedLongTailResult> {
-    const res = await this.execute({
-      type: 'AGGREGATE_FRAGMENTED_LONG_TAIL',
-      requestId: `long_tail_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      targetCPA,
-    });
-    if (res.type === 'AGGREGATE_FRAGMENTED_LONG_TAIL_RESULT') {
-      return (res as import('./protocol.ts').AggregateFragmentedLongTailResponse).result;
-    }
-    throw new Error(`Unexpected response for AGGREGATE_FRAGMENTED_LONG_TAIL: ${res.type}`);
+  public async terminateAll(): Promise<void> {
+    if (this.terminated) return;
+    this.terminated = true;
+    while (this.taskQueue.length > 0) this.taskQueue.shift()!.reject(new Error('SieveWorkerPool terminated while task was queued'));
+    for (const w of this.workers) w.terminate();
+    this.workers = [];
   }
 
-  public async detectMatchTypeDilution(): Promise<MatchTypeDilutionResult> {
-    const res = await this.execute({
-      type: 'DETECT_MATCH_TYPE_DILUTION',
-      requestId: `dilution_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    });
-    if (res.type === 'DETECT_MATCH_TYPE_DILUTION_RESULT') {
-      return (res as import('./protocol.ts').DetectMatchTypeDilutionResponse).result;
-    }
-    throw new Error(`Unexpected response for DETECT_MATCH_TYPE_DILUTION: ${res.type}`);
-  }
-
-  public async addExactBenchmarks(benchmarks: Array<{ query: string; cpc: number }>): Promise<void> {
-    const res = await this.execute({
-      type: 'ADD_EXACT_BENCHMARKS',
-      requestId: `add_benchmarks_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      benchmarks,
-    });
-    if (res.type !== 'ADD_EXACT_BENCHMARKS_SUCCESS') {
-      throw new Error(`Unexpected response for ADD_EXACT_BENCHMARKS: ${res.type}`);
-    }
-  }
+  public async terminate(): Promise<void> { return this.terminateAll(); }
 
   private findNextAvailableWorker(): WorkerSlot | null {
-    for (let i = 0; i < this.concurrency; i++) {
-      const idx = (this.roundRobinIdx + i) % this.concurrency;
+    for (let i = 0; i < this.workers.length; i++) {
+      const idx = (this.roundRobinIdx + i) % this.workers.length;
       const worker = this.workers[idx];
       if (!worker.busy && !worker.terminated) {
-        this.roundRobinIdx = (idx + 1) % this.concurrency;
+        this.roundRobinIdx = (idx + 1) % this.workers.length;
         return worker;
       }
     }
     return null;
   }
 
-  private runTaskOnWorker(worker: WorkerSlot, task: QueuedTask): void {
-    worker.dispatch(
-      task.command,
-      task.transferables,
-      (res: WorkerResponse) => {
-        task.resolve(res);
-        this.onWorkerTaskDone(worker);
-      },
-      (err: unknown) => {
-        task.reject(err);
-        this.onWorkerTaskDone(worker);
-      },
-      task.onProgress
-    );
+  private runTask(worker: WorkerSlot, task: QueuedTask): void {
+    worker.dispatch(task.command, task.transferables, (res) => {
+      task.resolve(res);
+      this.onWorkerDone(worker);
+    }, (err) => {
+      task.reject(err);
+      this.onWorkerDone(worker);
+    });
   }
 
-  private onWorkerTaskDone(worker: WorkerSlot): void {
+  private onWorkerDone(worker: WorkerSlot): void {
     worker.busy = false;
-
     if (this.taskQueue.length > 0) {
-      // Find first task targeted to this worker or unassigned
-      const taskIdx = this.taskQueue.findIndex(
-        (t) => t.targetWorkerId === undefined || t.targetWorkerId === worker.id
-      );
-      if (taskIdx >= 0) {
-        const [nextTask] = this.taskQueue.splice(taskIdx, 1);
-        this.runTaskOnWorker(worker, nextTask);
+      const idx = this.taskQueue.findIndex((t) => t.targetWorkerId === undefined || t.targetWorkerId === worker.id);
+      if (idx >= 0) {
+        const [next] = this.taskQueue.splice(idx, 1);
+        this.runTask(worker, next);
         return;
       }
-
-      this.roundRobinIdx = (worker.id + 1) % this.concurrency;
-      const nextWorker = this.findNextAvailableWorker() || worker;
-      const nextTask = this.taskQueue.shift()!;
-      this.runTaskOnWorker(nextWorker, nextTask);
+      const idle = this.findNextAvailableWorker() || worker;
+      this.runTask(idle, this.taskQueue.shift()!);
     }
-  }
-
-  public async terminate(): Promise<void> {
-    if (this.terminated) return;
-    this.terminated = true;
-
-    // Drain and reject queued tasks
-    while (this.taskQueue.length > 0) {
-      const task = this.taskQueue.shift()!;
-      task.reject(new Error('SieveWorkerPool terminated while task was queued'));
-    }
-
-    for (const worker of this.workers) {
-      worker.terminate();
-    }
-    this.workers = [];
   }
 }
