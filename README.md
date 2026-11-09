@@ -15,7 +15,7 @@
 
 ---
 
-* **Live Demo:** [sieveql.vercel.app](https://sieveql.vercel.app/)
+* **Live Demo:** [sieveql.vercel.app](https://sieveql-beta.vercel.app/)
 * **Repository:** [github.com/ShadowXZS/sieve](https://github.com/ShadowXZS/sieve)
 * **License:** GNU Affero General Public License v3.0 (AGPL-3.0)
 
