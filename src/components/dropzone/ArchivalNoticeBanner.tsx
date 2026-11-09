@@ -24,7 +24,7 @@ export const ArchivalNoticeBanner: React.FC<ArchivalNoticeBannerProps> = ({
     >
       <div className="flex items-start gap-3.5">
         <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0 mt-0.5">
-          <AlertTriangle className="w-5 h-5" aria-hidden="true" />
+          <AlertTriangle className="w-7 h-7" aria-hidden="true" />
         </div>
         <div className="flex-1 space-y-1.5 min-w-0">
           <h3 className="text-xs sm:text-sm font-semibold text-amber-300">
