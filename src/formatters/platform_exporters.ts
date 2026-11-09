@@ -7,8 +7,14 @@ import type { NegativeExclusionRule, ExclusionTargetLevel } from '../domain/type
 export type AmazonFallbackMatch = 'Negative Phrase' | 'Negative Exact';
 
 export interface CandidateKeywordLike {
-  readonly keyword: string;
+  readonly keyword?: string;
+  readonly query?: string;
+  readonly term?: string;
+  readonly text?: string;
+  readonly candidateTerm?: string;
   readonly matchType?: string;
+  readonly recommendedMatchType?: string;
+  readonly verdict?: string;
   readonly hasCollision?: boolean;
   readonly targetLevel?: ExclusionTargetLevel;
   readonly campaignId?: string;
@@ -55,17 +61,15 @@ const escapeCsv = (v: string): string => {
 };
 
 function extractRuleDetails(rule: CandidateRuleInput) {
-  let rawTerm = '';
-  if ('candidateTerm' in rule && typeof rule.candidateTerm === 'string') {
-    rawTerm = rule.candidateTerm;
-  } else if ('keyword' in rule && typeof rule.keyword === 'string') {
-    rawTerm = rule.keyword;
-  }
+  const r = rule as Record<string, unknown>;
+  const rawTerm = String(
+    r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? ''
+  );
   const cleanTerm = stripTerm(rawTerm);
   const isExactLocked =
     ('verdict' in rule && rule.verdict === 'EXACT_BRACKET_LOCK') ||
     ('hasCollision' in rule && Boolean(rule.hasCollision));
-  const rawMatch = 'recommendedMatchType' in rule ? rule.recommendedMatchType : rule.matchType;
+  const rawMatch = 'recommendedMatchType' in rule ? rule.recommendedMatchType : (rule as CandidateKeywordLike).matchType;
   const matchUpper = String(rawMatch || 'BROAD').toUpperCase();
   const isExact = isExactLocked || matchUpper === 'EXACT';
   const isPhrase = !isExact && matchUpper === 'PHRASE';
@@ -84,6 +88,39 @@ function extractRuleDetails(rule: CandidateRuleInput) {
     (adGroupId ? 'AD_GROUP' : campaignId ? 'CAMPAIGN' : 'ACCOUNT');
 
   return { cleanTerm, isExact, isPhrase, campaignId, adGroupId, targetLevel };
+}
+
+/** Generates Plain Text negative rules with match type syntax ([exact], "phrase", broad) */
+export function generatePlainTextRules(
+  rules: readonly (CandidateRuleInput | Record<string, unknown>)[]
+): string {
+  const lines: string[] = [];
+  for (const rule of rules) {
+    const r = rule as Record<string, unknown>;
+    const raw = r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? '';
+    const rawStr = String(raw).trim();
+    const text = stripTerm(rawStr);
+    if (text.trim().length === 0) continue;
+
+    const rawMatch = r.recommendedMatchType ?? r.matchType;
+    const isExactLocked =
+      r.verdict === 'EXACT_BRACKET_LOCK' || Boolean(r.hasCollision);
+    let matchUpper = String(rawMatch || '').toUpperCase();
+    if (!matchUpper) {
+      if (rawStr.startsWith('[') && rawStr.endsWith(']')) matchUpper = 'EXACT';
+      else if (rawStr.startsWith('"') && rawStr.endsWith('"')) matchUpper = 'PHRASE';
+      else matchUpper = isExactLocked ? 'EXACT' : 'BROAD';
+    }
+
+    if (isExactLocked || matchUpper === 'EXACT') {
+      lines.push(`[${text}]`);
+    } else if (matchUpper === 'PHRASE') {
+      lines.push(`"${text}"`);
+    } else {
+      lines.push(text);
+    }
+  }
+  return lines.filter((l) => l.trim().length > 0).join('\n');
 }
 
 /** Generates Google Ads Editor TSV: Campaign \t Ad Group \t Keyword \t Criterion Type */

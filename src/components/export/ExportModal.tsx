@@ -7,12 +7,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
 import {
-  generateGoogleAdsEditorTsv,
-  generateAmazonBulkCsv,
-  validatePlatformConstraints,
-  createGoogleAdsBlob,
-  createAmazonBulkBlob,
-  downloadPlatformExport,
+  generateGoogleAdsEditorTsv, generateAmazonBulkCsv, generatePlainTextRules,
+  validatePlatformConstraints, createGoogleAdsBlob, createAmazonBulkBlob, downloadPlatformExport,
 } from '../../formatters/platform_exporters.ts';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
 import { generateGoogleAdsScript } from '../../formatters/scripts.ts';
@@ -52,16 +48,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
     [keywords, activePresets]
   );
 
-  const { scrubbedKeywords, piiStats } = useMemo(() => {
-    if (!isPiiScrubbed) return { scrubbedKeywords: eligibleKeywords, piiStats: null };
-    const { scrubbed, stats } = scrubKeywordList(eligibleKeywords);
-    return { scrubbedKeywords: scrubbed, piiStats: stats };
-  }, [eligibleKeywords, isPiiScrubbed]);
+  const normalizedKeywords = useMemo(() => eligibleKeywords.map((k) => {
+    const r = k as unknown as Record<string, unknown>;
+    const term = (r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? '') as string;
+    return { ...k, keyword: k.keyword || term, ...(r.query ? { query: term } : {}) } as unknown as PersistedNegativeKeyword;
+  }), [eligibleKeywords]);
 
-  const validation = useMemo(() =>
-    validatePlatformConstraints(scrubbedKeywords),
-    [scrubbedKeywords]
-  );
+  const { scrubbedKeywords, piiStats } = useMemo(() => {
+    if (!isPiiScrubbed) return { scrubbedKeywords: normalizedKeywords, piiStats: null };
+    const { scrubbed, stats } = scrubKeywordList(normalizedKeywords);
+    const synchronized = scrubbed.map((item) => {
+      const r = item as unknown as Record<string, unknown>;
+      return (r.query ? { ...item, query: item.keyword } : item) as PersistedNegativeKeyword;
+    });
+    return { scrubbedKeywords: synchronized, piiStats: stats };
+  }, [normalizedKeywords, isPiiScrubbed]);
+
+  const validation = useMemo(() => validatePlatformConstraints(scrubbedKeywords), [scrubbedKeywords]);
 
   const exportPayload = useMemo(() => {
     switch (selectedFormat) {
@@ -69,9 +72,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
       case 'amazon_csv': return generateAmazonBulkCsv(scrubbedKeywords);
       case 'google_script': return generateGoogleAdsScript(scrubbedKeywords);
       case 'plain_text':
-      default: return scrubbedKeywords.map((k) => k.formattedRule || k.keyword).join('\n');
+      default: return generatePlainTextRules(scrubbedKeywords);
     }
   }, [selectedFormat, scrubbedKeywords]);
+
+  const payloadLineCount = useMemo(() => exportPayload ? exportPayload.split('\n').length : 0, [exportPayload]);
+
+  const previewText = useMemo(() => {
+    const totalCount = Math.max(eligibleKeywords.length, payloadLineCount);
+    if (totalCount > 10000) {
+      const lines = exportPayload ? exportPayload.split('\n') : [];
+      return `${lines.slice(0, 500).join('\n')}\n\nShowing preview of first 500 of ${totalCount.toLocaleString()} rules... Full dataset included in Copy/Download`;
+    }
+    return exportPayload.length > 15000
+      ? `${exportPayload.slice(0, 15000)}\n\n... (preview truncated to first 15,000 characters)`
+      : exportPayload;
+  }, [exportPayload, eligibleKeywords.length, payloadLineCount]);
 
   const handleCopy = async () => {
     if (await copyToClipboard(exportPayload)) {
@@ -82,21 +98,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
   };
 
   const handleDownload = () => {
-    let blob: Blob;
-    let filename = 'sieve-negative-rules.txt';
-    if (selectedFormat === 'google_editor') {
-      blob = createGoogleAdsBlob(exportPayload);
-      filename = 'sieve-google-ads-editor.tsv';
-    } else if (selectedFormat === 'amazon_csv') {
-      blob = createAmazonBulkBlob(exportPayload);
-      filename = 'sieve-amazon-ppc-negatives.csv';
-    } else if (selectedFormat === 'google_script') {
-      blob = new Blob([exportPayload], { type: 'application/javascript;charset=utf-8' });
-      filename = 'sieve-google-ads-script.js';
-    } else {
-      blob = new Blob([exportPayload], { type: 'text/plain;charset=utf-8' });
-    }
-    downloadPlatformExport(blob, filename);
+    const formatMap: Record<ExportFormat, { blob: () => Blob; name: string }> = {
+      google_editor: { blob: () => createGoogleAdsBlob(exportPayload), name: 'sieve-google-ads-editor.tsv' },
+      amazon_csv: { blob: () => createAmazonBulkBlob(exportPayload), name: 'sieve-amazon-ppc-negatives.csv' },
+      google_script: { blob: () => new Blob([exportPayload], { type: 'application/javascript;charset=utf-8' }), name: 'sieve-google-ads-script.js' },
+      plain_text: { blob: () => new Blob([exportPayload], { type: 'text/plain;charset=utf-8' }), name: 'sieve-negative-rules.txt' },
+    };
+    const target = formatMap[selectedFormat] || formatMap.plain_text;
+    downloadPlatformExport(target.blob(), target.name);
   };
 
   if (!isOpen) return null;
@@ -128,14 +137,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
                 <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="font-semibold">Platform Constraint Warnings:</span>
                 {validation.hasLengthExceeded && (
-                  <span className="px-2 py-0.5 rounded bg-red-900/80 text-red-200 border border-red-700/60 font-mono text-[11px]" data-testid="constraint-badge-length">
-                    LENGTH_EXCEEDED: &gt;80 characters
-                  </span>
+                  <span className="px-2 py-0.5 rounded bg-red-900/80 text-red-200 border border-red-700/60 font-mono text-[11px]" data-testid="constraint-badge-length">LENGTH_EXCEEDED: &gt;80 characters</span>
                 )}
                 {validation.hasCapacityExceeded && (
-                  <span className="px-2 py-0.5 rounded bg-amber-900/80 text-amber-200 border border-amber-700/60 font-mono text-[11px]" data-testid="constraint-badge-capacity">
-                    LIST_CAPACITY_EXCEEDED: Exceeds platform ceiling
-                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-900/80 text-amber-200 border border-amber-700/60 font-mono text-[11px]" data-testid="constraint-badge-capacity">LIST_CAPACITY_EXCEEDED: Exceeds platform ceiling</span>
                 )}
               </div>
             )}
@@ -212,11 +217,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
             <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-2">
               <div className="flex items-center justify-between text-xs text-zinc-400">
                 <span>Payload Preview</span>
-                <span className="font-mono tabular-nums text-[11px]">{exportPayload.length.toLocaleString()} chars • {exportPayload.split('\n').length.toLocaleString()} lines</span>
+                <span className="font-mono tabular-nums text-[11px]">{exportPayload.length.toLocaleString()} characters • {payloadLineCount.toLocaleString()} lines</span>
               </div>
               <div className="flex-1 overflow-auto bg-zinc-950 border border-zinc-800 rounded-lg p-3 font-mono text-[11px] text-zinc-300 whitespace-pre">
-                {exportPayload.slice(0, 15000)}
-                {exportPayload.length > 15000 && '\n\n... (preview truncated to first 15,000 characters)'}
+                {previewText}
               </div>
             </div>
 
