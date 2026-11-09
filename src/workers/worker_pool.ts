@@ -14,16 +14,12 @@ import type { PersistedNegativeKeyword } from './protocol.ts';
 
 export type { WorkerIngestMessage, IngestCommand };
 
-export interface WorkerPoolOptions {
-  concurrency?: number;
-}
-
+export interface WorkerPoolOptions { concurrency?: number; }
 export interface IngestChunkResult {
   recordBatches: Uint8Array[];
   recordCount: number;
   keywords: PersistedNegativeKeyword[];
 }
-
 export interface IngestOptions {
   totalBytes?: number;
   bytesProcessed?: number;
@@ -51,8 +47,7 @@ function createWorkerSlot(
       const worker = new Worker(new URL('./ingestion.worker.ts', import.meta.url), { type: 'module' });
       worker.onmessage = (e: MessageEvent<WorkerIngestMessage>) => onMessage(e.data);
       worker.onerror = (e: ErrorEvent) => {
-        const errorMsg = e.message || 'Worker initialization failed: Worker thread execution crashed. Click to retry.';
-        onError(new Error(errorMsg));
+        onError(new Error(e.message || 'Worker initialization failed: Worker thread execution crashed. Click to retry.'));
       };
       worker.onmessageerror = () => {
         onError(new Error('Worker initialization failed: Message deserialization error. Click to retry.'));
@@ -61,7 +56,10 @@ function createWorkerSlot(
         id,
         busy: false,
         postMessage: (cmd, transfer) => worker.postMessage(cmd, transfer || []),
-        terminate: () => worker.terminate(),
+        terminate: () => {
+          worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null;
+          worker.terminate();
+        },
         onerror: null,
         onmessageerror: null,
       };
@@ -72,9 +70,7 @@ function createWorkerSlot(
 
   const channel = new MessageChannel();
   channel.port2.onmessage = (e: MessageEvent<IngestCommand>) => {
-    void handleWorkerIngestMessage(e.data, (msg, transfer) => {
-      channel.port2.postMessage(msg, transfer || []);
-    });
+    void handleWorkerIngestMessage(e.data, (msg, transfer) => channel.port2.postMessage(msg, transfer || []));
   };
 
   const slot: WorkerSlot = {
@@ -82,12 +78,11 @@ function createWorkerSlot(
     busy: false,
     onerror: null,
     onmessageerror: null,
-    postMessage: (cmd, transfer) => {
-      channel.port1.postMessage(cmd, transfer || []);
-    },
+    postMessage: (cmd, transfer) => channel.port1.postMessage(cmd, transfer || []),
     terminate: () => {
-      channel.port1.close();
-      channel.port2.close();
+      channel.port1.onmessage = null; channel.port1.onmessageerror = null;
+      channel.port2.onmessage = null; channel.port2.onmessageerror = null;
+      channel.port1.close(); channel.port2.close();
     },
   };
 
@@ -103,6 +98,7 @@ function createWorkerSlot(
 export class IngestionWorkerPool {
   public readonly concurrency: number;
   private workers: WorkerSlot[] = [];
+  private pendingTasks: Set<{ reject: (err: Error) => void }> = new Set();
   private currentIdx = 0;
   private isTerminated = false;
 
@@ -112,7 +108,9 @@ export class IngestionWorkerPool {
   }
 
   public getAvailableWorkerId(): number {
-    return this.currentIdx % Math.max(1, this.concurrency);
+    const id = this.currentIdx % Math.max(1, this.concurrency);
+    this.currentIdx = (this.currentIdx + 1) % Math.max(1, this.concurrency);
+    return id;
   }
 
   public async executeChunk(
@@ -130,19 +128,11 @@ export class IngestionWorkerPool {
         (msg: WorkerIngestMessage) => {
           if (resolved) return;
           options?.onProgress?.(msg);
-          if (msg.type === 'PROGRESS') {
-            // Forward progress
-          } else if (msg.type === 'SUCCESS') {
-            resolved = true;
-            worker.terminate();
-            resolve({
-              recordBatches: msg.recordBatches,
-              recordCount: msg.recordCount,
-              keywords: msg.keywords,
-            });
+          if (msg.type === 'SUCCESS') {
+            resolved = true; cleanup();
+            resolve({ recordBatches: msg.recordBatches, recordCount: msg.recordCount, keywords: msg.keywords });
           } else if (msg.type === 'ERROR') {
-            resolved = true;
-            worker.terminate();
+            resolved = true; cleanup();
             const err = new Error(msg.message);
             options?.onError?.(err);
             reject(err);
@@ -150,12 +140,28 @@ export class IngestionWorkerPool {
         },
         (err: Error) => {
           if (resolved) return;
-          resolved = true;
-          worker.terminate();
+          resolved = true; cleanup();
           options?.onError?.(err);
           reject(err);
         }
       );
+
+      this.workers.push(worker);
+      const taskHandle = {
+        reject: (err: Error) => {
+          if (resolved) return;
+          resolved = true; cleanup();
+          reject(err);
+        },
+      };
+      this.pendingTasks.add(taskHandle);
+
+      const cleanup = () => {
+        this.pendingTasks.delete(taskHandle);
+        const idx = this.workers.indexOf(worker);
+        if (idx !== -1) this.workers.splice(idx, 1);
+        worker.terminate();
+      };
 
       const command: IngestCommand = {
         type: 'INGEST_CHUNK',
@@ -169,8 +175,7 @@ export class IngestionWorkerPool {
       try {
         worker.postMessage(command, [chunkBuffer]);
       } catch (err: unknown) {
-        resolved = true;
-        worker.terminate();
+        resolved = true; cleanup();
         const msg = err instanceof Error ? err.message : String(err);
         const error = new Error(`Worker initialization failed: ${msg}. Click to retry.`);
         options?.onError?.(error);
@@ -199,8 +204,16 @@ export class IngestionWorkerPool {
 
   public async terminate(): Promise<void> {
     this.isTerminated = true;
+    for (const task of this.pendingTasks) {
+      task.reject(new Error('Worker initialization failed: Worker pool terminated. Click to retry.'));
+    }
+    this.pendingTasks.clear();
     for (const w of this.workers) w.terminate();
     this.workers = [];
+  }
+
+  public async dispose(): Promise<void> {
+    return this.terminate();
   }
 }
 

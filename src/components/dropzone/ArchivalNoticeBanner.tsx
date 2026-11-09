@@ -31,7 +31,7 @@ export const ArchivalNoticeBanner: React.FC<ArchivalNoticeBannerProps> = ({
             Development Transparency & Local-Compute Notice
           </h3>
           <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
-            This application's core codebase and local analytics pipelines were synthesized using advanced Meta-Prompting engineering workflows. The application itself runs completely deterministically inside your browser.
+            This is a project created through AI. This application's core codebase and local analytics pipelines were synthesized using advanced Meta-Prompting engineering workflows. The application itself runs completely deterministically inside your browser.
           </p>
           <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
             Please use the data as a reference and not make financial decisions based on it.

@@ -1,6 +1,7 @@
 /**
  * Power Query Drawer Component (Analytics SQL Workspace)
  * Zero-server in-browser DuckDB-Wasm SQL workbench with Apache Arrow IPC.
+ * Line ceiling: <= 250 lines.
  */
 import React, { useState, useEffect, useCallback, useId } from 'react';
 import { X, Terminal, Play, RotateCcw, Copy, Check, ShieldCheck, Database, Download, AlertTriangle, Clock, Layers, GitBranch, PlusCircle } from 'lucide-react';
@@ -9,31 +10,23 @@ import type { SieveWorkerPool } from '../../workers/pool.ts';
 import type { PersistedNegativeKeyword } from '../../workers/protocol.ts';
 import { copyToClipboard } from '../../formatters/clipboard.ts';
 import { DuckDbAdapter, duckDbAdapter } from '../../analytics/duckdb_adapter.ts';
-import { topSpendersPreset, zeroConvWastePreset, campaignRollupPreset, auctionCollisionsPreset, highCpcOutliersPreset } from '../../analytics/presets.ts';
+import {
+  SCHEMA_TABLES,
+  PRESETS,
+  sessionActiveTab,
+  sessionQueryHistory,
+  setSessionActiveTab,
+  pushSessionHistory,
+  formatDuckDBError,
+} from './powerQueryConstants.ts';
+import { PowerQueryResultsTable } from './PowerQueryResultsTable.tsx';
+
+export { SCHEMA_TABLES, formatDuckDBError };
 
 export interface PowerQueryDrawerProps {
   isOpen?: boolean; onClose?: () => void; workerPool?: SieveWorkerPool; adapter?: DuckDbAdapter;
   onExecuteQuery?: (sql: string) => Promise<{ columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number; executionTimeMs: number }>;
   onExplainQuery?: (sql: string) => Promise<{ plan: string; operators?: readonly string[] } | string>;
-}
-
-export const SCHEMA_TABLES: Record<string, Array<{ name: string; type: string }>> = {
-  search_terms: [{ name: 'query', type: 'VARCHAR' }, { name: 'campaign', type: 'VARCHAR' }, { name: 'adgroup', type: 'VARCHAR' }, { name: 'match_type', type: 'VARCHAR' }, { name: 'impressions', type: 'UINTEGER' }, { name: 'clicks', type: 'UINTEGER' }, { name: 'spend_micros', type: 'UBIGINT' }, { name: 'conversions', type: 'DECIMAL' }, { name: 'revenue_micros', type: 'UBIGINT' }, { name: 'cpc_micros', type: 'UBIGINT' }, { name: 'is_safe', type: 'BOOLEAN' }],
-  token_matrix: [{ name: 'token', type: 'VARCHAR' }, { name: 'gram_degree', type: 'INTEGER' }, { name: 'classification', type: 'VARCHAR' }, { name: 'occurrences', type: 'BIGINT' }, { name: 'sub_click_queries', type: 'BIGINT' }, { name: 'total_clicks', type: 'BIGINT' }, { name: 'total_spend_micros', type: 'BIGINT' }, { name: 'conversions', type: 'DOUBLE' }, { name: 'wilson_score_upper', type: 'DOUBLE' }],
-  safe_list: [{ name: 'term', type: 'VARCHAR' }, { name: 'conversions', type: 'DOUBLE' }, { name: 'revenue_micros', type: 'BIGINT' }, { name: 'created_at', type: 'BIGINT' }],
-};
-
-const PRESETS = [
-  { name: 'Top Spenders', sql: () => topSpendersPreset(50) }, { name: 'Zero-Conv Waste', sql: () => zeroConvWastePreset(5, 0n) }, { name: 'Campaign Rollup', sql: () => campaignRollupPreset() }, { name: 'Auction Collisions', sql: () => auctionCollisionsPreset() }, { name: 'High CPC Outliers', sql: () => highCpcOutliersPreset(2_000_000n) },
-];
-
-let sessionActiveTab: 'search_terms' | 'token_matrix' | 'safe_list' = 'search_terms';
-let sessionQueryHistory: string[] = [];
-
-export function formatDuckDBError(error: unknown): { title: string; message: string } {
-  const raw = typeof error === 'string' ? error : error instanceof Error ? error.message : String(error ?? '');
-  const title = raw.includes('Parser Error:') ? 'SQL Syntax / Parser Error' : raw.includes('Catalog Error:') ? 'Database Catalog Error' : raw.includes('Binder Error:') ? 'Query Binder Error' : 'DuckDB Execution Error';
-  return { title, message: raw.replace(/^.*?(Error:\s*)/i, '').trim() || raw.trim() };
 }
 
 export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: propIsOpen, onClose, workerPool, adapter, onExecuteQuery, onExplainQuery }) => {
@@ -47,7 +40,7 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
   const titleId = useId();
 
   const handleClose = useCallback(() => (onClose ? onClose() : setPowerQueryOpen(false)), [onClose, setPowerQueryOpen]);
-  const pushHistory = (q: string) => { sessionQueryHistory = [q, ...sessionQueryHistory.filter((x) => x !== q)].slice(0, 10); setHistory(sessionQueryHistory); };
+  const pushHistory = (q: string) => { setHistory(pushSessionHistory(q)); };
 
   const handleExecute = useCallback(async (isExplain = false) => {
     const trimmed = powerQuerySql.trim();
@@ -76,15 +69,10 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
         setExplainPlan(null);
         let res: { columns: readonly string[]; rows: readonly Record<string, unknown>[]; rowCount: number; executionTimeMs: number };
         const isMockPool = workerPool && typeof (workerPool as any).executeSQL === 'function' && typeof (workerPool as any).parseAndIngest !== 'function';
-        if (onExecuteQuery) {
-          res = await onExecuteQuery(trimmed);
-        } else if (adapter) {
-          res = await adapter.executeQuery(trimmed);
-        } else if (isMockPool) {
-          res = await workerPool.executeSQL(trimmed);
-        } else {
-          res = await activeAdapter.executeQuery(trimmed);
-        }
+        if (onExecuteQuery) res = await onExecuteQuery(trimmed);
+        else if (adapter) res = await adapter.executeQuery(trimmed);
+        else if (isMockPool) res = await workerPool.executeSQL(trimmed);
+        else res = await activeAdapter.executeQuery(trimmed);
         setSqlQueryResult({ columns: [...res.columns], rows: [...res.rows], rowCount: res.rowCount, executionTimeMs: res.executionTimeMs, query: trimmed });
         pushHistory(trimmed);
       }
@@ -147,7 +135,7 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
               <span className="flex items-center gap-1.5 font-semibold text-zinc-300"><Database className="w-3.5 h-3.5 text-indigo-400" />Virtual Tables:</span>
               <div className="flex items-center gap-1.5">
                 {(['search_terms', 'token_matrix', 'safe_list'] as const).map((t) => (
-                  <button key={t} type="button" data-testid={`schema-tab-${t}`} onClick={() => { sessionActiveTab = t; setActiveTable(t); }} className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${activeTable === t ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'}`}>{t}</button>
+                  <button key={t} type="button" data-testid={`schema-tab-${t}`} onClick={() => { setSessionActiveTab(t); setActiveTable(t); }} className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${activeTable === t ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'}`}>{t}</button>
                 ))}
               </div>
             </div>
@@ -232,24 +220,7 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
                 sqlQueryResult.rows.length === 0 ? (
                   <div data-testid="power-query-partial" className="py-12 text-center text-xs font-mono text-zinc-500">Query returned 0 rows (Partial / Empty Result).</div>
                 ) : (
-                  <div className="overflow-x-auto max-h-[420px] divide-y divide-zinc-800/80">
-                    <table className="w-full text-left text-xs font-mono border-collapse" data-testid="power-query-table">
-                      <thead className="bg-zinc-900/90 text-zinc-400 sticky top-0 z-10 border-b border-zinc-800">
-                        <tr><th className="py-2 px-3 w-10 text-center font-normal text-zinc-600">#</th>{sqlQueryResult.columns.map((c) => (<th key={c} className="py-2 px-3 font-semibold text-zinc-200 whitespace-nowrap">{c}</th>))}</tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-850">
-                        {sqlQueryResult.rows.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-zinc-900/50 transition-colors tabular-nums">
-                            <td className="py-2 px-3 text-center text-zinc-600 select-none">{idx + 1}</td>
-                            {sqlQueryResult.columns.map((c) => {
-                              const v = (row as Record<string, unknown>)[c]; const isN = typeof v === 'number' || typeof v === 'bigint'; const isB = typeof v === 'boolean';
-                              return (<td key={c} className={`py-2 px-3 whitespace-nowrap ${isN ? 'text-right text-emerald-300' : isB ? 'text-indigo-300' : 'text-zinc-300'}`}>{isB ? (v ? 'true' : 'false') : v != null ? String(v) : 'NULL'}</td>);
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <PowerQueryResultsTable columns={sqlQueryResult.columns} rows={sqlQueryResult.rows} />
                 )
               ) : (
                 <div data-testid="power-query-blank" className="py-16 text-center space-y-2">
