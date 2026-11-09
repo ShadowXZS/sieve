@@ -1,54 +1,35 @@
 /**
  * Spend Waterfall Bar Component
- *
- * Implements a Spend Waterfall Bar showing an immediate visual breakdown of account spend:
+ * Immediate visual breakdown of active account spend across efficiency tiers:
  * 1. Secured / Protected Spend (Emerald)
  * 2. Exploratory High-Risk Spend (Amber)
  * 3. Identified Waste Bleed (Rose)
  * 4. Capital Reallocation Potential (Indigo)
- *
- * Architectural Invariants:
- * - Segment percentages sum to exactly 100% width.
- * - Tabular numerals (tabular-nums font-mono) prevent layout shifts.
- * - Multi-currency locale-aware formatting with JPY zero-decimal precision.
  */
-
 import React, { useMemo } from 'react';
 import { Layers, ArrowRight } from 'lucide-react';
-import { useSieveStore } from '../../state/useSieveStore.ts';
-import { computeExecutiveAnalytics } from '../../utils/executiveAnalytics.ts';
+import { useSieveStore, formatCurrencyMicros } from '../../state/useSieveStore.ts';
+import type { CurrencyMicros } from '../../domain/types/index.ts';
 
-export interface SpendWaterfallBarProps {
-  className?: string;
-}
+export interface SpendWaterfallBarProps { className?: string; }
 
 export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className = '' }) => {
   const { keywords, filteredKeywords, thresholds, kpi, currency } = useSieveStore();
 
-  const analytics = useMemo(() => {
-    const activeKeywords = filteredKeywords.length > 0 ? filteredKeywords : keywords;
-    return computeExecutiveAnalytics(activeKeywords, thresholds, kpi, currency);
-  }, [keywords, filteredKeywords, thresholds, kpi, currency]);
-
-  const { spendWaterfall, reallocationYield } = analytics;
+  const metrics = useMemo(() => useSieveStore.getState().getSummaryMetrics(), [keywords, filteredKeywords, thresholds, kpi]);
+  const { securedSpendMicros, exploratorySpendMicros, wasteSpendMicros, totalSpendMicros } = metrics;
+  const total = (totalSpendMicros > 0n ? totalSpendMicros : (securedSpendMicros + exploratorySpendMicros + wasteSpendMicros)) as CurrencyMicros;
 
   // Compute normalized segment percentages guaranteed to sum to exactly 100.0%
   const { securedWidth, exploratoryWidth, wasteWidth } = useMemo(() => {
-    const safeTotal = spendWaterfall.totalSpend;
-    if (safeTotal > 0) {
-      const s = spendWaterfall.securedSpend;
-      const e = spendWaterfall.exploratorySpend;
-      const w = spendWaterfall.wasteSpend;
-      const sum = s + e + w;
-      if (sum > 0) {
-        const sPct = Math.round((s / sum) * 1000) / 10;
-        const ePct = Math.round((e / sum) * 1000) / 10;
-        const wPct = Math.round((100 - sPct - ePct) * 10) / 10;
-        return { securedWidth: sPct, exploratoryWidth: ePct, wasteWidth: wPct };
-      }
+    if (total > 0n) {
+      const sPct = Number((securedSpendMicros * 1000n) / total) / 10;
+      const ePct = Number((exploratorySpendMicros * 1000n) / total) / 10;
+      const wPct = Math.round((100 - sPct - ePct) * 10) / 10;
+      return { securedWidth: sPct, exploratoryWidth: ePct, wasteWidth: wPct };
     }
     return { securedWidth: 50.0, exploratoryWidth: 25.0, wasteWidth: 25.0 };
-  }, [spendWaterfall]);
+  }, [total, securedSpendMicros, exploratorySpendMicros, wasteSpendMicros]);
 
   return (
     <div
@@ -75,7 +56,7 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
         <div className="flex items-center gap-2 self-start sm:self-auto text-xs font-mono tabular-nums bg-zinc-800/40 px-3 py-1.5 rounded-lg border border-zinc-700/50">
           <span className="text-zinc-400">Total Analyzed Spend:</span>
           <span data-testid="waterfall-total-spend" className="text-zinc-100 font-bold">
-            {spendWaterfall.formattedTotalSpend}
+            {formatCurrencyMicros(total, currency)}
           </span>
         </div>
       </div>
@@ -98,7 +79,7 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
             data-testid="waterfall-segment-secured"
             className="bg-emerald-500 hover:bg-emerald-400 transition-all duration-300 rounded-l-full relative group cursor-pointer"
             style={{ width: `${securedWidth}%` }}
-            title={`Secured Spend: ${spendWaterfall.formattedSecuredSpend} (${securedWidth}%)`}
+            title={`Secured Spend: ${formatCurrencyMicros(securedSpendMicros, currency)} (${securedWidth}%)`}
           />
 
           {/* Exploratory High-Risk Segment (Amber) */}
@@ -106,7 +87,7 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
             data-testid="waterfall-segment-exploratory"
             className="bg-amber-500 hover:bg-amber-400 transition-all duration-300 relative group cursor-pointer"
             style={{ width: `${exploratoryWidth}%` }}
-            title={`Exploratory High-Risk Spend: ${spendWaterfall.formattedExploratorySpend} (${exploratoryWidth}%)`}
+            title={`Exploratory High-Risk Spend: ${formatCurrencyMicros(exploratorySpendMicros, currency)} (${exploratoryWidth}%)`}
           />
 
           {/* Identified Waste Bleed Segment (Rose) */}
@@ -114,7 +95,7 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
             data-testid="waterfall-segment-waste"
             className="bg-rose-500 hover:bg-rose-400 transition-all duration-300 rounded-r-full relative group cursor-pointer"
             style={{ width: `${wasteWidth}%` }}
-            title={`Identified Waste Bleed: ${spendWaterfall.formattedWasteSpend} (${wasteWidth}%)`}
+            title={`Identified Waste Bleed: ${formatCurrencyMicros(wasteSpendMicros, currency)} (${wasteWidth}%)`}
           />
         </div>
       </div>
@@ -125,91 +106,56 @@ export const SpendWaterfallBar: React.FC<SpendWaterfallBarProps> = ({ className 
         <div className="p-3 rounded-lg bg-zinc-950/40 border border-emerald-500/20 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-emerald-400 text-xs font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Protected Spend
-              </span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Protected Spend</span>
               <span className="font-mono tabular-nums text-[11px]">{securedWidth.toFixed(1)}%</span>
             </div>
-            <div
-              data-testid="waterfall-secured-value"
-              className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100"
-            >
-              {spendWaterfall.formattedSecuredSpend}
+            <div data-testid="waterfall-secured-value" className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100">
+              {formatCurrencyMicros(securedSpendMicros, currency)}
             </div>
           </div>
-          <div className="text-[10px] text-zinc-500 mt-2">
-            Safe-list locked traffic driving conversions
-          </div>
+          <div className="text-[10px] text-zinc-500 mt-2">Safe-list locked traffic driving conversions</div>
         </div>
 
         {/* Amber: Exploratory Spend */}
         <div className="p-3 rounded-lg bg-zinc-950/40 border border-amber-500/20 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-amber-400 text-xs font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                Exploratory Spend
-              </span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />Exploratory Spend</span>
               <span className="font-mono tabular-nums text-[11px]">{exploratoryWidth.toFixed(1)}%</span>
             </div>
-            <div
-              data-testid="waterfall-exploratory-value"
-              className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100"
-            >
-              {spendWaterfall.formattedExploratorySpend}
+            <div data-testid="waterfall-exploratory-value" className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100">
+              {formatCurrencyMicros(exploratorySpendMicros, currency)}
             </div>
           </div>
-          <div className="text-[10px] text-zinc-500 mt-2">
-            High CPC & low sample queries testing intent
-          </div>
+          <div className="text-[10px] text-zinc-500 mt-2">High CPC & low sample queries testing intent</div>
         </div>
 
         {/* Rose: Waste Bleed Spend */}
         <div className="p-3 rounded-lg bg-zinc-950/40 border border-rose-500/20 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-rose-400 text-xs font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-                Identified Waste
-              </span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-500" />Identified Waste</span>
               <span className="font-mono tabular-nums text-[11px]">{wasteWidth.toFixed(1)}%</span>
             </div>
-            <div
-              data-testid="waterfall-waste-value"
-              className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100"
-            >
-              {spendWaterfall.formattedWasteSpend}
+            <div data-testid="waterfall-waste-value" className="text-base sm:text-lg font-bold font-mono tabular-nums text-zinc-100">
+              {formatCurrencyMicros(wasteSpendMicros, currency)}
             </div>
           </div>
-          <div className="text-[10px] text-zinc-500 mt-2">
-            Negative candidates causing direct CPA drag
-          </div>
+          <div className="text-[10px] text-zinc-500 mt-2">Negative candidates causing direct CPA drag</div>
         </div>
 
         {/* Indigo: Reallocation Yield Potential */}
         <div className="p-3 rounded-lg bg-zinc-950/40 border border-indigo-500/20 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-indigo-400 text-xs font-semibold mb-1">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                Recovery Yield
-              </span>
-              <span className="font-mono tabular-nums text-[11px] text-emerald-400 flex items-center">
-                <ArrowRight className="w-2.5 h-2.5 inline mr-0.5" />
-                Lift
-              </span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-indigo-500" />Recovery Yield</span>
+              <span className="font-mono tabular-nums text-[11px] text-emerald-400 flex items-center"><ArrowRight className="w-2.5 h-2.5 inline mr-0.5" />Lift</span>
             </div>
-            <div
-              data-testid="waterfall-reallocation-value"
-              className="text-base sm:text-lg font-bold font-mono tabular-nums text-indigo-400"
-            >
-              +{reallocationYield.incrementalConversions.toFixed(1)} Convs
+            <div data-testid="waterfall-reallocation-value" className="text-base sm:text-lg font-bold font-mono tabular-nums text-indigo-400">
+              +{metrics.incrementalConversions.toLocaleString()} Convs
             </div>
           </div>
-          <div className="text-[10px] text-zinc-500 mt-2 font-mono tabular-nums">
-            Annual: {reallocationYield.formattedAnnualizedRecovery}
-          </div>
+          <div className="text-[10px] text-zinc-500 mt-2 font-mono tabular-nums">Annual: {formatCurrencyMicros(metrics.annualizedRecoveryMicros, currency)}</div>
         </div>
       </div>
     </div>
