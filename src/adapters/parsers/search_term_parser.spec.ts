@@ -65,6 +65,26 @@ test('Red Test 2: Strips currency formatting and converts to exact integer Curre
   assert.equal(parseCurrencyToMicros('$0.05'), 50_000n);
   assert.equal(parseCurrencyToMicros(''), 0n);
   assert.equal(parseCurrencyToMicros(undefined), 0n);
+  assert.equal(parseCurrencyToMicros('175.5285'), 175_528_500n);
+  assert.equal(parseCurrencyToMicros('0.015'), 15_000n);
+  assert.equal(parseCurrencyToMicros(175528.49999999997), 175_528_500_000n);
+  assert.equal(parseCurrencyToMicros(0.17552849999999998), 175_528n);
+  assert.equal(parseCurrencyToMicros('-$175.5285'), -175_528_500n);
+  assert.equal(parseCurrencyToMicros('($175.5285)'), -175_528_500n);
+  assert.equal(parseCurrencyToMicros(NaN), 0n);
+});
+
+test('Fractional currency ingestion: Ingests CSV containing 175.5285 and 0.015 without RangeError', () => {
+  const csv = [
+    'Search term,Match type,Campaign,Ad group,Impressions,Clicks,Cost,Conversions,Conv. value',
+    'fractional cost item,Exact,Camp A,Grp A,100,10,175.5285,1.5,350.25',
+    'micro bid query,Phrase,Camp B,Grp B,50,5,0.015,0,0',
+  ].join('\n');
+  const records = parseSearchTermReport(csv);
+  assert.equal(records.length, 2);
+  assert.equal(records[0].spendMicros, 175_528_500n);
+  assert.equal(records[0].revenueMicros, 350_250_000n);
+  assert.equal(records[1].spendMicros, 15_000n);
 });
 
 test('Red Test 3: Amazon PPC Sponsored Products report maps customer search term and 7-day metrics cleanly', () => {

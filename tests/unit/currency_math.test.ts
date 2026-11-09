@@ -21,6 +21,7 @@ import {
   SUPPORTED_CURRENCIES,
   DEFAULT_CURRENCY,
   type SupportedCurrency,
+  toCurrencyMicros,
 } from '../../src/utils/currency.ts';
 import { calculateMarginalWaste, useSieveStore } from '../../src/state/useSieveStore.ts';
 import { CurrencySelector } from '../../src/components/brand/CurrencySelector.tsx';
@@ -191,6 +192,40 @@ test('calculateMarginalWaste: Handles NaN, Infinity, negative values, and curren
   assert.strictEqual(formatCurrency(NaN, '$'), '$0.00');
   assert.strictEqual(formatCurrency(Infinity, '¥'), '¥0');
   assert.strictEqual(formatCurrency(-Infinity, '€'), '€0.00');
+});
+
+test('toCurrencyMicros: Safely quantizes fractional numbers, strings, and floats without RangeError', () => {
+  // Fractional numbers and string parsing
+  assert.strictEqual(toCurrencyMicros(175.5285), 175_528_500n);
+  assert.strictEqual(toCurrencyMicros('175.5285'), 175_528_500n);
+  assert.strictEqual(toCurrencyMicros('$175.5285'), 175_528_500n);
+  assert.strictEqual(toCurrencyMicros('0.015'), 15_000n);
+  assert.strictEqual(toCurrencyMicros(0.015), 15_000n);
+
+  // IEEE-754 precision drift values (regression test for RangeError)
+  assert.strictEqual(toCurrencyMicros(175528.49999999997), 175_528_500_000n);
+  assert.strictEqual(toCurrencyMicros(0.17552849999999998), 175_528n);
+
+  // Negative amounts & parenthesis notation
+  assert.strictEqual(toCurrencyMicros('-$175.5285'), -175_528_500n);
+  assert.strictEqual(toCurrencyMicros('($175.5285)'), -175_528_500n);
+  assert.strictEqual(toCurrencyMicros(-175.5285), -175_528_500n);
+
+  // Zero, NaN, Infinity, and nullish fallbacks
+  assert.strictEqual(toCurrencyMicros(0), 0n);
+  assert.strictEqual(toCurrencyMicros('0'), 0n);
+  assert.strictEqual(toCurrencyMicros('$0.00'), 0n);
+  assert.strictEqual(toCurrencyMicros(NaN), 0n);
+  assert.strictEqual(toCurrencyMicros(Infinity), 0n);
+  assert.strictEqual(toCurrencyMicros(-Infinity), 0n);
+  assert.strictEqual(toCurrencyMicros(null), 0n);
+  assert.strictEqual(toCurrencyMicros(undefined), 0n);
+  assert.strictEqual(toCurrencyMicros('--'), 0n);
+  assert.strictEqual(toCurrencyMicros(''), 0n);
+  assert.strictEqual(toCurrencyMicros('abc'), 0n);
+
+  // BigInt passthrough
+  assert.strictEqual(toCurrencyMicros(100_000_000n), 100_000_000n);
 });
 
 // ============================================================================

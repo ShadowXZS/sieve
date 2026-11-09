@@ -14,7 +14,7 @@ function sanitizeInteger(val: number, fallback: number = 0): number {
 
 function sanitizeBigInt(val: bigint | number, fallback: bigint = 0n): bigint {
   try {
-    const b = BigInt(val);
+    const b = typeof val === 'number' ? BigInt(Math.round(val)) : BigInt(val);
     return b < 0n ? 0n : b;
   } catch {
     return fallback;
@@ -133,7 +133,7 @@ export function resolveDiagnosticPreset(preset: DiagnosticPresetQuery): string {
     case 'ZERO_CONVERSION_WASTE':
       return zeroConvWastePreset(
         Number(params.minClicks ?? 5),
-        BigInt(params.minSpendMicros ?? 0n)
+        typeof params.minSpendMicros === 'number' ? BigInt(Math.round(params.minSpendMicros)) : BigInt(params.minSpendMicros ?? 0n)
       );
     case 'CAMPAIGN_ROLLUP':
       return campaignRollupPreset();
@@ -143,7 +143,9 @@ export function resolveDiagnosticPreset(preset: DiagnosticPresetQuery): string {
     case 'LONG_TAIL_BLEED':
     default:
       if (params.targetCpaMicros !== undefined && params.targetCpaMicros !== null) {
-        return highCpcOutliersPreset(BigInt(params.targetCpaMicros));
+        return highCpcOutliersPreset(
+          typeof params.targetCpaMicros === 'number' ? BigInt(Math.round(params.targetCpaMicros)) : BigInt(params.targetCpaMicros)
+        );
       }
       return topSpendersPreset(50);
   }

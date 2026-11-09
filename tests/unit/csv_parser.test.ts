@@ -133,3 +133,25 @@ test('End-to-End CSV Parsing: Parses multi-platform format with currencies and c
   assert.strictEqual(r2.conversions, 2);
   assert.strictEqual(r2.marginalWaste, 320); // 420 - 2 * 50 = 320
 });
+
+test('Fractional Numbers CSV Ingestion: Parses spend with 175.5285 and 0.015 and hydrates store without RangeError', () => {
+  const csv = `Search term,Clicks,Cost,Conversions
+"fractional search term 1",10,175.5285,1.5
+"micro spend search term 2",5,0.015,0
+"precision drift term 3",20,0.1755285,0`;
+
+  const parsed = parseCsvTextToRecords(csv, 50);
+  assert.strictEqual(parsed.records.length, 3);
+  assert.strictEqual(parsed.records[0].cost, 175.5285);
+  assert.strictEqual(parsed.records[1].cost, 0.015);
+
+  // Hydrate into store to verify deriveDomainMetrics and toMicros without RangeError
+  useSieveStore.getState().reset();
+  assert.doesNotThrow(() => {
+    useSieveStore.getState().handleParseSuccess({ records: parsed.records });
+  });
+
+  const state = useSieveStore.getState();
+  assert.strictEqual(state.records.length, 3);
+  assert.strictEqual(state.fileLoaded, true);
+});

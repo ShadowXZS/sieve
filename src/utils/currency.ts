@@ -143,3 +143,5 @@ export function detectCurrencyFromData(
   return null;
 }
 
+export { toCurrencyMicros, fromCurrencyMicros } from '../domain/types/primitives.ts';
+

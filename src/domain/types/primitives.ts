@@ -71,6 +71,45 @@ export type Branded<TValue, TTag extends string> = TValue & {
 export type MicroScale = 1_000_000n;
 
 /**
+ * Safely converts numerical values, currency strings, or BigInt amounts into micro-unit `CurrencyMicros`.
+ * Eliminates IEEE-754 precision drift and prevents RangeError during BigInt conversion
+ * by safely rounding floating-point amounts to the nearest integer before invoking BigInt().
+ *
+ * Invariants:
+ * - NEVER pass a raw floating-point number directly to BigInt(). Always wrap with Math.round().
+ * - When parsing strings like "175.5285", parse as float, scale to micros, round, and then cast:
+ *   BigInt(Math.round(parseFloat(cleanString || "0") * 1_000_000))
+ * - Supports negative numbers, zero, NaN (fallback to 0n), and edge cases cleanly.
+ */
+export function toCurrencyMicros(val: number | string | bigint | null | undefined): CurrencyMicros {
+  if (val === null || val === undefined) return 0n as CurrencyMicros;
+  if (typeof val === 'bigint') return val as CurrencyMicros;
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val) || Number.isNaN(val) || val === 0) return 0n as CurrencyMicros;
+    return BigInt(Math.round(val * 1_000_000)) as CurrencyMicros;
+  }
+  const rawStr = String(val).trim();
+  if (!rawStr || rawStr === '--' || rawStr === '-') return 0n as CurrencyMicros;
+
+  const isNegative = rawStr.includes('-') || (rawStr.includes('(') && rawStr.includes(')'));
+  const cleanString = rawStr.replace(/[$€£¥₹,"'()\s-]/g, '');
+  if (!cleanString) return 0n as CurrencyMicros;
+
+  const parsed = parseFloat(cleanString);
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed === 0) return 0n as CurrencyMicros;
+
+  const micros = BigInt(Math.round(parsed * 1_000_000));
+  return (isNegative && micros > 0n ? -micros : micros) as CurrencyMicros;
+}
+
+/**
+ * Converts `CurrencyMicros` back to standard floating-point units.
+ */
+export function fromCurrencyMicros(micros: CurrencyMicros): number {
+  return Number(micros) / 1_000_000;
+}
+
+/**
  * Conversion utility type signature to quantize a standard decimal number into `CurrencyMicros`.
  */
 export type ToMicrosFn = (amount: number) => CurrencyMicros;

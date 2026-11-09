@@ -45,7 +45,7 @@ export const LongTailBleedCard: React.FC<LongTailBleedCardProps> = ({ className 
           conversions: k.conversions ?? 0,
           spendMicros,
           revenueMicros: 0n as CurrencyMicros,
-          averageCpcMicros: clicks > 0 ? ((spendMicros / BigInt(clicks)) as CurrencyMicros) : (0n as CurrencyMicros),
+          averageCpcMicros: clicks > 0 ? ((spendMicros / BigInt(Math.round(clicks))) as CurrencyMicros) : (0n as CurrencyMicros),
           hasCollision: Boolean(k.hasCollision),
         };
       });

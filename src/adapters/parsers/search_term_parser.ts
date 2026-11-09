@@ -6,13 +6,14 @@
  * Zero UI/DOM dependencies. File line ceiling: <= 200 lines.
  */
 
-import type {
-  SearchTermRecord,
-  PlatformMatchType,
-  CurrencyMicros,
-  ClickCount,
-  ImpressionCount,
-  QueryString,
+import {
+  type SearchTermRecord,
+  type PlatformMatchType,
+  type CurrencyMicros,
+  type ClickCount,
+  type ImpressionCount,
+  type QueryString,
+  toCurrencyMicros,
 } from '../../domain/types/index.ts';
 import { detectDelimiter, findHeaderRow, splitDelimitedLine } from './platform_detector.ts';
 
@@ -20,25 +21,8 @@ export function normalizeQuery(query: string): string {
   return query.toLowerCase().replace(/[\[\]"']/g, '').replace(/[^\w\s]/g, ' ').trim().replace(/\s+/g, ' ');
 }
 
-export function parseCurrencyToMicros(value: string | number | null | undefined): CurrencyMicros {
-  if (value === null || value === undefined) return 0n as CurrencyMicros;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value === 0) return 0n as CurrencyMicros;
-    return parseCurrencyToMicros(value.toFixed(6));
-  }
-  let str = String(value).trim();
-  if (!str || str === '--' || str === '-') return 0n as CurrencyMicros;
-
-  const isNegative = str.includes('-') || (str.includes('(') && str.includes(')'));
-  str = str.replace(/[$€£¥₹,"'()\s-]/g, '');
-  if (!str) return 0n as CurrencyMicros;
-
-  const [intPart = '0', fracPart = ''] = str.split('.');
-  const intClean = intPart.replace(/\D/g, '') || '0';
-  const fracDigits = fracPart.replace(/\D/g, '').padEnd(6, '0').slice(0, 6);
-
-  const total = BigInt(intClean) * 1_000_000n + BigInt(fracDigits);
-  return (isNegative ? -total : total) as CurrencyMicros;
+export function parseCurrencyToMicros(value: string | number | bigint | null | undefined): CurrencyMicros {
+  return toCurrencyMicros(value);
 }
 
 export function normalizeMatchType(rawMatchType: string | undefined): PlatformMatchType {
@@ -130,7 +114,7 @@ export class SearchTermParser {
       const conversions = Math.max(0, parseNum(parseCell(cells, cols.conversions)));
       const revenueMicros = parseCurrencyToMicros(parseCell(cells, cols.revenue));
       const matchType = normalizeMatchType(parseCell(cells, cols.matchType));
-      const avgCpc = clicks > 0 ? ((spendMicros / BigInt(clicks)) as CurrencyMicros) : (0n as CurrencyMicros);
+      const avgCpc = clicks > 0 ? ((spendMicros / BigInt(Math.round(clicks))) as CurrencyMicros) : (0n as CurrencyMicros);
 
       records.push({
         rawQuery: rawQuery as QueryString,

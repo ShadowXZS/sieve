@@ -86,6 +86,15 @@ export function serializeToArrowIPC(tableOrBatch: arrow.Table | arrow.RecordBatc
  * Converts domain SearchTermRecord items into an 11-column Apache Arrow Table.
  * Uses exact 64-bit integer vectors for currency micros to prevent float truncation.
  */
+function toSafeBigInt(val: bigint | number | undefined | null, fallback: bigint = 0n): bigint {
+  if (val === undefined || val === null) return fallback;
+  if (typeof val === 'bigint') return val;
+  if (typeof val === 'number') {
+    return Number.isFinite(val) && !Number.isNaN(val) ? BigInt(Math.round(val)) : fallback;
+  }
+  return fallback;
+}
+
 export function recordsToArrowTable(records: readonly SearchTermRecord[]): arrow.Table {
   const n = records.length;
   const queries = new Array<string>(n);
@@ -108,10 +117,10 @@ export function recordsToArrowTable(records: readonly SearchTermRecord[]): arrow
     matchTypes[i] = r.matchType || 'BROAD';
     impressions[i] = r.impressions || 0;
     clicks[i] = r.clicks || 0;
-    spendMicros[i] = BigInt(r.spendMicros ?? 0n);
+    spendMicros[i] = toSafeBigInt(r.spendMicros);
     conversions[i] = r.conversions || 0;
-    revenueMicros[i] = BigInt(r.revenueMicros ?? 0n);
-    cpcMicros[i] = BigInt(r.averageCpcMicros ?? 0n);
+    revenueMicros[i] = toSafeBigInt(r.revenueMicros);
+    cpcMicros[i] = toSafeBigInt(r.averageCpcMicros);
     const anyR = r as unknown as Record<string, unknown>;
     isSafe[i] = typeof anyR.is_safe === 'boolean'
       ? anyR.is_safe
@@ -162,7 +171,7 @@ export function tokensToArrowTable(tokens: readonly AggregatedTokenMetric[]): ar
     tokenTexts[i] = t.tokenText || (anyT.token_text as string) || (anyT.token as string) || '';
     occurrences[i] = t.occurrences || 0;
     totalClicks[i] = t.totalClicks || (anyT.total_clicks as number) || 0;
-    totalSpendMicros[i] = BigInt(t.totalSpendMicros ?? (anyT.total_spend_micros as bigint | number) ?? 0n);
+    totalSpendMicros[i] = toSafeBigInt(t.totalSpendMicros ?? (anyT.total_spend_micros as bigint | number));
     conversions[i] = t.conversions || 0;
     wilsonUpperBounds[i] = t.wilsonScoreUpperBound ?? (anyT.wilson_upper_bound as number) ?? (anyT.wilson_score_upper as number) ?? 0;
   }

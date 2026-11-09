@@ -49,7 +49,7 @@ export class MatchDilutionEngine implements IMatchDilutionPort {
     hijackedClicks: ClickCount
   ): CurrencyMicros {
     if (broadCpcMicros <= exactCpcMicros || hijackedClicks <= 0) return 0n as CurrencyMicros;
-    return (BigInt(hijackedClicks) * (broadCpcMicros - exactCpcMicros)) as CurrencyMicros;
+    return (BigInt(Math.round(hijackedClicks)) * (broadCpcMicros - exactCpcMicros)) as CurrencyMicros;
   }
 
   classifySeverity(inflationRatio: number): DilutionSeverity {
@@ -79,7 +79,7 @@ export class MatchDilutionEngine implements IMatchDilutionPort {
       b.clicks += record.clicks;
       b.spendMicros += record.spendMicros;
       if (b.clicks > 0 && b.spendMicros > 0n) {
-        b.averageCpcMicros = (b.spendMicros / BigInt(b.clicks)) as CurrencyMicros;
+        b.averageCpcMicros = (b.spendMicros / BigInt(Math.round(b.clicks))) as CurrencyMicros;
       }
     }
 
@@ -95,7 +95,7 @@ export class MatchDilutionEngine implements IMatchDilutionPort {
       const broadCpc = broadRecord.averageCpcMicros > 0n
         ? broadRecord.averageCpcMicros
         : broadRecord.spendMicros > 0n
-          ? ((broadRecord.spendMicros / BigInt(broadRecord.clicks)) as CurrencyMicros)
+          ? ((broadRecord.spendMicros / BigInt(Math.round(broadRecord.clicks))) as CurrencyMicros)
           : (0n as CurrencyMicros);
 
       if (broadCpc <= exactCpc) continue;
@@ -150,7 +150,7 @@ export class MatchDilutionEngine implements IMatchDilutionPort {
 
     for (const pair of pairs) {
       totalBudgetLost += pair.budgetLostMicros;
-      totalDilutedSpend += pair.broadCpcMicros * BigInt(pair.hijackedClicks);
+      totalDilutedSpend += pair.broadCpcMicros * BigInt(Math.round(pair.hijackedClicks));
       totalDilutedClicks += pair.hijackedClicks;
       weightedInflationSum += pair.cpcInflationRatio * pair.hijackedClicks;
     }

@@ -68,7 +68,7 @@ export class EconometricEngine implements IEconometricEnginePort {
         const cpc = term.averageCpcMicros > 0n
           ? term.averageCpcMicros
           : term.spendMicros > 0n
-            ? ((term.spendMicros / BigInt(term.clicks)) as CurrencyMicros)
+            ? ((term.spendMicros / BigInt(Math.round(term.clicks))) as CurrencyMicros)
             : (0n as CurrencyMicros);
 
         if (cpc > maxObservedCpc) maxObservedCpc = cpc;
@@ -112,7 +112,7 @@ export class EconometricEngine implements IEconometricEnginePort {
   ): ConvexReallocationYield {
     const rawGamma = options?.gammaDamping ?? 0.75;
     const elasticityCoefficient = Math.min(0.85, Math.max(0.70, rawGamma));
-    const annualMult = BigInt(options?.annualizationMultiplier ?? 12);
+    const annualMult = BigInt(Math.round(options?.annualizationMultiplier ?? 12));
 
     const safeRecovered = recoveredWasteMicros > 0n ? recoveredWasteMicros : 0n;
     const safeTargetCpa = targetCpaMicros > 0n ? targetCpaMicros : 0n;

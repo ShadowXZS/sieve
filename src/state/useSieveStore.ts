@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import type { PersistedNegativeKeyword, FragmentedLongTailResult, MatchTypeDilutionResult } from '../workers/protocol.ts';
 import { type SupportedCurrency, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, detectCurrencyFromData } from '../utils/currency.ts';
-import type { CurrencyMicros, SearchTermRecord, SpendWaterfallSpectrum, ConvexReallocationYield, BidElasticitySpectrum, PlatformMatchType, ClickCount, ImpressionCount, QueryString } from '../domain/types/index.ts';
+import { type CurrencyMicros, type SearchTermRecord, type SpendWaterfallSpectrum, type ConvexReallocationYield, type BidElasticitySpectrum, type PlatformMatchType, type ClickCount, type ImpressionCount, type QueryString, toCurrencyMicros } from '../domain/types/index.ts';
 import { EconometricEngine } from '../domain/engines/econometric_engine.ts';
 
 export type { SupportedCurrency, FragmentedLongTailResult, MatchTypeDilutionResult };
@@ -47,13 +47,7 @@ export interface SieveState {
   getSummaryMetrics: () => SieveMetricsMicros; getSpendWaterfall: () => SpendWaterfallSpectrum; getReallocationYield: () => ConvexReallocationYield; getBidElasticitySpectrum: () => BidElasticitySpectrum;
 }
 
-export function toMicros(val: number | string | bigint | undefined | null): CurrencyMicros {
-  if (val === undefined || val === null) return 0n as CurrencyMicros;
-  if (typeof val === 'bigint') return val as CurrencyMicros;
-  if (typeof val === 'number') return (!Number.isFinite(val) || val <= 0) ? (0n as CurrencyMicros) : (BigInt(Math.round(val * 1_000_000)) as CurrencyMicros);
-  const n = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) && n > 0 ? (BigInt(Math.round(n * 1_000_000)) as CurrencyMicros) : (0n as CurrencyMicros);
-}
+export const toMicros = toCurrencyMicros;
 export function fromMicros(micros: CurrencyMicros): number { return Number(micros) / 1_000_000; }
 
 export function formatCurrencyMicros(micros: CurrencyMicros, currency: SupportedCurrency = '$', compact: boolean = false): string {
@@ -96,7 +90,7 @@ function deriveDomainMetrics(keywords: PersistedNegativeKeyword[], thresholds: S
       campaignName: k.firstSeenCampaign || k.campaignId || 'campaign', adGroupName: k.adGroupId || 'adgroup',
       matchType: (k.matchType ? k.matchType.toUpperCase() as PlatformMatchType : 'BROAD'),
       clicks, impressions: 0 as ImpressionCount, conversions: k.conversions ?? 0, spendMicros, revenueMicros: 0n as CurrencyMicros,
-      averageCpcMicros: clicks > 0 ? ((spendMicros / BigInt(clicks)) as CurrencyMicros) : (0n as CurrencyMicros), hasCollision: Boolean(k.hasCollision),
+      averageCpcMicros: clicks > 0 ? ((spendMicros / BigInt(Math.round(clicks))) as CurrencyMicros) : (0n as CurrencyMicros), hasCollision: Boolean(k.hasCollision),
     };
   });
   const waterfall = econometricEngine.computeSpendWaterfall(searchTerms, targetCpaMicros);
@@ -110,10 +104,10 @@ function deriveDomainMetrics(keywords: PersistedNegativeKeyword[], thresholds: S
     if (k.hasCollision || (k.conversions && k.conversions > 0)) protectedConversions += (k.conversions || 0);
   }
   if (protectedConversions === 0 && collisionCount > 0) protectedConversions = collisionCount;
-  const filterMatchedVolumeMicros = BigInt(keywords.filter((k) => (k.conversions ?? 0) <= 0).reduce((s, k) => s + Math.round((k.cost ?? k.marginalWaste ?? 0) * 1_000_000), 0)) as CurrencyMicros;
+  const filterMatchedVolumeMicros = BigInt(Math.round(keywords.filter((k) => (k.conversions ?? 0) <= 0).reduce((s, k) => s + Math.round((k.cost ?? k.marginalWaste ?? 0) * 1_000_000), 0))) as CurrencyMicros;
   const highRiskClicks = searchTerms.filter((t) => t.conversions <= 0 && t.clicks > 0 && t.spendMicros < targetCpaMicros).reduce((s, t) => s + t.clicks, 0);
   const wastePercentage = waterfall.totalSpendMicros > 0n ? Number((waterfall.wasteSpendMicros * 1000n) / waterfall.totalSpendMicros) / 10 : 0.0;
-  const cpaDragMicros = baselineConvs > 0 ? ((waterfall.wasteSpendMicros / BigInt(baselineConvs)) as CurrencyMicros) : waterfall.wasteSpendMicros;
+  const cpaDragMicros = baselineConvs > 0 ? ((waterfall.wasteSpendMicros / BigInt(Math.round(baselineConvs))) as CurrencyMicros) : waterfall.wasteSpendMicros;
   const metrics: SieveMetricsMicros = {
     totalSpendMicros: waterfall.totalSpendMicros, wasteSpendMicros: waterfall.wasteSpendMicros, securedSpendMicros: waterfall.securedSpendMicros,
     exploratorySpendMicros: waterfall.exploratorySpendMicros, actionableWasteMicros: waterfall.wasteSpendMicros, filterMatchedVolumeMicros,

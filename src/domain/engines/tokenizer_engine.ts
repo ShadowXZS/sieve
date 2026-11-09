@@ -128,7 +128,7 @@ export class NgramTokenizerEngine implements INgramTokenizerPort {
     for (const [token, b] of map.entries()) {
       const classification = this.classifyToken(token);
       const wilson = this.calculateWilsonScore(b.clicks, b.convs);
-      const avgCpc = b.clicks > 0 ? ((b.spend / BigInt(b.clicks)) as CurrencyMicros) : (0n as CurrencyMicros);
+      const avgCpc = b.clicks > 0 ? ((b.spend / BigInt(Math.round(b.clicks))) as CurrencyMicros) : (0n as CurrencyMicros);
       const metric: AggregatedTokenMetric = {
         tokenText: token,
         gramDegree: b.gramDegree,
