@@ -28,6 +28,7 @@ import {
   type ExecutiveAnalytics,
 } from '../../utils/executiveAnalytics.ts';
 import { registerPdfFonts } from './fonts/index.ts';
+import { EXECUTIVE_COLOR_TOKENS } from './tokens.ts';
 import { scrubKeywordList, scrubPiiText } from '../../crypto/pii_scrubber.ts';
 import { Chapter1Summary } from './components/Chapter1Summary.tsx';
 import { Chapter2Reallocation } from './components/Chapter2Reallocation.tsx';
@@ -55,7 +56,7 @@ export interface ForensicDeckProps {
 
 export const ForensicDeck: React.FC<ForensicDeckProps> = ({
   organizationTitle = 'Forensic Account Audit Deck',
-  accentColor = '#6366f1',
+  accentColor = EXECUTIVE_COLOR_TOKENS.reallocation.border,
   currencySymbol = '$',
   notes,
   kpi,

@@ -3,7 +3,12 @@
  *
  * Provides a deterministic, zero-allocation memory bridge between JavaScript
  * and the Rust sieve_core WebAssembly pipeline.
+ * Physical line ceiling: <= 250 lines.
  */
+
+import { SieveStreamingSession } from './sieve_session.ts';
+
+export { SieveStreamingSession };
 
 export enum FilterOp {
   PassThrough = 0,
@@ -28,49 +33,37 @@ export interface ChunkResult extends SieveStats {
   output: Uint8Array;
 }
 
+export interface SieveCoreWasmExports {
+  memory: WebAssembly.Memory;
+  alloc: (size: number) => number;
+  dealloc: (ptr: number, size: number) => void;
+  sieve_pipeline_new: () => number;
+  sieve_pipeline_free: (ptr: number) => void;
+  sieve_pipeline_reset: (ptr: number) => void;
+  sieve_pipeline_set_filter: (ptr: number, col: number, op: number, queryPtr: number, queryLen: number) => number;
+  sieve_pipeline_process_chunk: (ptr: number, inPtr: number, inLen: number, outPtr: number, outCap: number, statsPtr: number) => number;
+  sieve_filter_csv: (inPtr: number, inLen: number, col: number, op: number, queryPtr: number, queryLen: number, outPtr: number, outCap: number, statsPtr: number) => number;
+}
+
 export class SieveWasmBridge {
   private instance: WebAssembly.Instance;
   private memory: WebAssembly.Memory;
 
-  // Exported C-ABI functions
   private wasmAlloc: (size: number) => number;
   private wasmDealloc: (ptr: number, size: number) => void;
   private wasmPipelineNew: () => number;
   private wasmPipelineFree: (ptr: number) => void;
   private wasmPipelineReset: (ptr: number) => void;
-  private wasmPipelineSetFilter: (
-    ptr: number,
-    col: number,
-    op: number,
-    queryPtr: number,
-    queryLen: number
-  ) => number;
-  private wasmPipelineProcessChunk: (
-    ptr: number,
-    inPtr: number,
-    inLen: number,
-    outPtr: number,
-    outCap: number,
-    statsPtr: number
-  ) => number;
-  private wasmFilterCsv: (
-    inPtr: number,
-    inLen: number,
-    col: number,
-    op: number,
-    queryPtr: number,
-    queryLen: number,
-    outPtr: number,
-    outCap: number,
-    statsPtr: number
-  ) => number;
+  private wasmPipelineSetFilter: (ptr: number, col: number, op: number, queryPtr: number, queryLen: number) => number;
+  private wasmPipelineProcessChunk: (ptr: number, inPtr: number, inLen: number, outPtr: number, outCap: number, statsPtr: number) => number;
+  private wasmFilterCsv: (inPtr: number, inLen: number, col: number, op: number, queryPtr: number, queryLen: number, outPtr: number, outCap: number, statsPtr: number) => number;
 
   constructor(instance: WebAssembly.Instance) {
     this.instance = instance;
-    const exports = instance.exports as Record<string, any>;
+    const exports = instance.exports as unknown as SieveCoreWasmExports;
 
     if (!exports.memory || !(exports.memory instanceof WebAssembly.Memory)) {
-      throw new Error("WASM module must export linear memory");
+      throw new Error('WASM module must export linear memory');
     }
     this.memory = exports.memory;
     this.wasmAlloc = exports.alloc;
@@ -83,25 +76,32 @@ export class SieveWasmBridge {
     this.wasmFilterCsv = exports.sieve_filter_csv;
   }
 
+  private static createDefaultImports(): WebAssembly.Imports {
+    return {
+      './sieve_core_bg.js': { __wbindgen_init_externref_table: () => {} },
+      __wbindgen_placeholder__: { __wbindgen_init_externref_table: () => {} },
+      wbg: {},
+      env: {},
+    };
+  }
+
   public static async init(wasmSource: BufferSource | WebAssembly.Module): Promise<SieveWasmBridge> {
+    const imports = SieveWasmBridge.createDefaultImports();
     let instance: WebAssembly.Instance;
     if (wasmSource instanceof WebAssembly.Module) {
-      instance = await WebAssembly.instantiate(wasmSource, {});
+      instance = await WebAssembly.instantiate(wasmSource, imports);
     } else {
-      const result = await WebAssembly.instantiate(wasmSource, {});
+      const result = await WebAssembly.instantiate(wasmSource, imports);
       instance = result.instance;
     }
     return new SieveWasmBridge(instance);
   }
 
   public static initSync(module: WebAssembly.Module): SieveWasmBridge {
-    const instance = new WebAssembly.Instance(module, {});
+    const instance = new WebAssembly.Instance(module, SieveWasmBridge.createDefaultImports());
     return new SieveWasmBridge(instance);
   }
 
-  /**
-   * Allocate memory in WebAssembly linear memory.
-   */
   public alloc(size: number): number {
     const ptr = this.wasmAlloc(size);
     if (ptr === 0 && size > 0) {
@@ -110,33 +110,21 @@ export class SieveWasmBridge {
     return ptr;
   }
 
-  /**
-   * Deallocate memory in WebAssembly linear memory.
-   */
   public dealloc(ptr: number, size: number): void {
     if (ptr !== 0 && size > 0) {
       this.wasmDealloc(ptr, size);
     }
   }
 
-  /**
-   * Read byte slice from linear memory.
-   */
   public readMemory(ptr: number, length: number): Uint8Array {
     return new Uint8Array(this.memory.buffer, ptr, length).slice();
   }
 
-  /**
-   * Write byte slice into linear memory at ptr.
-   */
   public writeMemory(ptr: number, data: Uint8Array): void {
     const dest = new Uint8Array(this.memory.buffer, ptr, data.length);
     dest.set(data);
   }
 
-  /**
-   * Scoped memory buffer lifecycle helper.
-   */
   public withMemory<T>(data: Uint8Array, fn: (ptr: number) => T): T {
     const ptr = this.alloc(data.length);
     try {
@@ -147,9 +135,6 @@ export class SieveWasmBridge {
     }
   }
 
-  /**
-   * One-shot deterministic CSV filter execution.
-   */
   public filterCsv(
     csvData: Uint8Array,
     column: number,
@@ -160,7 +145,7 @@ export class SieveWasmBridge {
     const inPtr = this.alloc(csvData.length);
     const queryPtr = this.alloc(query.length);
     const outPtr = this.alloc(outputCapacity);
-    const statsPtr = this.alloc(32); // 4 * 8-byte u64 metrics
+    const statsPtr = this.alloc(32);
 
     try {
       this.writeMemory(inPtr, csvData);
@@ -204,123 +189,27 @@ export class SieveWasmBridge {
     }
   }
 
-  /**
-   * Creates a stateful streaming pipeline instance.
-   */
   public createStreamingPipeline(): SieveStreamingSession {
     const pipelinePtr = this.wasmPipelineNew();
     if (pipelinePtr === 0) {
-      throw new Error("Failed to create SievePipeline instance");
+      throw new Error('Failed to create SievePipeline instance');
     }
     return new SieveStreamingSession(this, pipelinePtr);
   }
 
-  // Internal access for SieveStreamingSession
-  internalGetMemory(): WebAssembly.Memory {
+  public internalGetMemory(): WebAssembly.Memory {
     return this.memory;
   }
-  internalProcessChunk(
-    pipelinePtr: number,
-    inPtr: number,
-    inLen: number,
-    outPtr: number,
-    outCap: number,
-    statsPtr: number
-  ): number {
+  public internalProcessChunk(pipelinePtr: number, inPtr: number, inLen: number, outPtr: number, outCap: number, statsPtr: number): number {
     return this.wasmPipelineProcessChunk(pipelinePtr, inPtr, inLen, outPtr, outCap, statsPtr);
   }
-  internalSetFilter(
-    pipelinePtr: number,
-    col: number,
-    op: number,
-    queryPtr: number,
-    queryLen: number
-  ): number {
+  public internalSetFilter(pipelinePtr: number, col: number, op: number, queryPtr: number, queryLen: number): number {
     return this.wasmPipelineSetFilter(pipelinePtr, col, op, queryPtr, queryLen);
   }
-  internalReset(pipelinePtr: number): void {
+  public internalReset(pipelinePtr: number): void {
     this.wasmPipelineReset(pipelinePtr);
   }
-  internalFree(pipelinePtr: number): void {
+  public internalFree(pipelinePtr: number): void {
     this.wasmPipelineFree(pipelinePtr);
   }
 }
-
-export class SieveStreamingSession {
-  private bridge: SieveWasmBridge;
-  private pipelinePtr: number;
-  private destroyed = false;
-
-  constructor(bridge: SieveWasmBridge, pipelinePtr: number) {
-    this.bridge = bridge;
-    this.pipelinePtr = pipelinePtr;
-  }
-
-  private assertNotDestroyed() {
-    if (this.destroyed) {
-      throw new Error("SieveStreamingSession has been destroyed");
-    }
-  }
-
-  public setFilter(col: number, op: FilterOp, query: Uint8Array): void {
-    this.assertNotDestroyed();
-    this.bridge.withMemory(query, (queryPtr) => {
-      this.bridge.internalSetFilter(this.pipelinePtr, col, op, queryPtr, query.length);
-    });
-  }
-
-  public reset(): void {
-    this.assertNotDestroyed();
-    this.bridge.internalReset(this.pipelinePtr);
-  }
-
-  public processChunk(chunk: Uint8Array, outputCap: number = chunk.length): ChunkResult {
-    this.assertNotDestroyed();
-    const inPtr = this.bridge.alloc(chunk.length);
-    const outPtr = this.bridge.alloc(outputCap);
-    const statsPtr = this.bridge.alloc(32);
-
-    try {
-      this.bridge.writeMemory(inPtr, chunk);
-      const statusCode = this.bridge.internalProcessChunk(
-        this.pipelinePtr,
-        inPtr,
-        chunk.length,
-        outPtr,
-        outputCap,
-        statsPtr
-      );
-
-      const mem = this.bridge.internalGetMemory();
-      const statsView = new BigUint64Array(mem.buffer, statsPtr, 4);
-      const totalRecords = statsView[0];
-      const matchedRecords = statsView[1];
-      const bytesConsumed = statsView[2];
-      const bytesWritten = statsView[3];
-
-      const output = this.bridge.readMemory(outPtr, Number(bytesWritten));
-
-      return {
-        statusCode,
-        totalRecords,
-        matchedRecords,
-        bytesConsumed,
-        bytesWritten,
-        output,
-      };
-    } finally {
-      this.bridge.dealloc(inPtr, chunk.length);
-      this.bridge.dealloc(outPtr, outputCap);
-      this.bridge.dealloc(statsPtr, 32);
-    }
-  }
-
-  public destroy(): void {
-    if (!this.destroyed) {
-      this.destroyed = true;
-      this.bridge.internalFree(this.pipelinePtr);
-      this.pipelinePtr = 0;
-    }
-  }
-}
-

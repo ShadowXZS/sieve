@@ -40,8 +40,8 @@ import { logger } from '../utils/logger.ts';
  */
 export class AirGapAuditor {
   private originalFetch: typeof globalThis.fetch | null = null;
-  private originalWebSocket: any = null;
-  private originalRTCPeerConnection: any = null;
+  private originalWebSocket: unknown = null;
+  private originalRTCPeerConnection: unknown = null;
 
   private dispatches: InterceptedCall[] = [];
   private outboundBytes: number = 0;
@@ -90,7 +90,7 @@ export class AirGapAuditor {
     if (typeof globalThis.WebSocket !== 'undefined') {
       this.originalWebSocket = globalThis.WebSocket;
       const self = this;
-      globalThis.WebSocket = function (url: string | URL, ...protocols: any[]) {
+      const InterceptedWs = function (url: string | URL, ..._protocols: unknown[]) {
         const urlStr = url.toString();
         self.dispatches.push({
           protocol: 'WS',
@@ -101,14 +101,16 @@ export class AirGapAuditor {
         throw new Error(
           `Air-Gap Zero-Telemetry policy blocked WebSocket connection to: ${urlStr}. Zero outbound bytes permitted.`
         );
-      } as any;
+      };
+      (globalThis as unknown as { WebSocket: unknown }).WebSocket = InterceptedWs;
     }
 
     // 3. Intercept WebRTC RTCPeerConnection
-    if (typeof (globalThis as any).RTCPeerConnection !== 'undefined') {
-      this.originalRTCPeerConnection = (globalThis as any).RTCPeerConnection;
+    const globalRtc = globalThis as unknown as { RTCPeerConnection?: unknown };
+    if (typeof globalRtc.RTCPeerConnection !== 'undefined') {
+      this.originalRTCPeerConnection = globalRtc.RTCPeerConnection;
       const self = this;
-      (globalThis as any).RTCPeerConnection = function (configuration?: RTCConfiguration) {
+      globalRtc.RTCPeerConnection = function (_configuration?: RTCConfiguration) {
         self.dispatches.push({
           protocol: 'WEBRTC',
           url: 'webrtc://peer-connection',
@@ -118,7 +120,7 @@ export class AirGapAuditor {
         throw new Error(
           'Air-Gap Zero-Telemetry policy blocked WebRTC peer connection creation. Zero outbound bytes permitted.'
         );
-      } as any;
+      };
     }
   }
 
@@ -132,12 +134,13 @@ export class AirGapAuditor {
     }
 
     if (this.originalWebSocket && typeof globalThis.WebSocket !== 'undefined') {
-      globalThis.WebSocket = this.originalWebSocket;
+      (globalThis as unknown as { WebSocket: unknown }).WebSocket = this.originalWebSocket;
       this.originalWebSocket = null;
     }
 
-    if (this.originalRTCPeerConnection && typeof (globalThis as any).RTCPeerConnection !== 'undefined') {
-      (globalThis as any).RTCPeerConnection = this.originalRTCPeerConnection;
+    const globalRtc = globalThis as unknown as { RTCPeerConnection?: unknown };
+    if (this.originalRTCPeerConnection && typeof globalRtc.RTCPeerConnection !== 'undefined') {
+      globalRtc.RTCPeerConnection = this.originalRTCPeerConnection;
       this.originalRTCPeerConnection = null;
     }
   }

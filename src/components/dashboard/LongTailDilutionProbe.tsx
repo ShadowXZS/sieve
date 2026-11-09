@@ -8,7 +8,7 @@ import { useSieveStore, formatCurrencyMicros, toMicros } from '../../state/useSi
 import { MatchDilutionEngine } from '../../domain/engines/dilution_engine.ts';
 import { NgramTokenizerEngine } from '../../domain/engines/tokenizer_engine.ts';
 import { isSyntacticStopword } from '../../domain/engines/stopwords.ts';
-import type { DilutionSummary, AggregatedTokenMetric, SearchTermRecord, QueryString, ClickCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
+import type { DilutionSummary, AggregatedTokenMetric, SearchTermRecord, QueryString, ClickCount, ImpressionCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
 
 export interface LongTailDilutionProbeProps {
   className?: string;
@@ -45,7 +45,7 @@ export const LongTailDilutionProbe: React.FC<LongTailDilutionProbeProps> = ({ cl
         adGroupName: k.adGroupId || 'adgroup',
         matchType: (isExact ? 'EXACT' : 'BROAD') as PlatformMatchType,
         clicks,
-        impressions: 0 as any,
+        impressions: 0 as unknown as ImpressionCount,
         conversions: k.conversions ?? 0,
         spendMicros,
         revenueMicros: 0n as CurrencyMicros,

@@ -17,7 +17,8 @@ import type { ExclusionTargetLevel } from '../../domain/types/shield.ts';
 const ROW_HEIGHT = 48;
 
 export function selectQualifiedNegativeRules(state: Partial<SieveState>): PersistedNegativeKeyword[] {
-  if (Array.isArray((state as any)?.qualifiedNegativeRules)) return (state as any).qualifiedNegativeRules;
+  const customQualified = (state as unknown as { qualifiedNegativeRules?: PersistedNegativeKeyword[] }).qualifiedNegativeRules;
+  if (Array.isArray(customQualified)) return customQualified;
   const source = state.keywords && state.keywords.length > 0 ? state.keywords : (state.filteredKeywords ?? []);
   const minClicks = state.thresholds?.minClicks ?? 1;
   const minConf = state.thresholds?.confidenceScore ?? state.thresholds?.minConfidence ?? 0.8;
@@ -43,7 +44,7 @@ const formatRuleStr = (q: string, m: 'broad' | 'phrase' | 'exact'): string => {
 };
 
 const getScope = (kw: PersistedNegativeKeyword): ExclusionTargetLevel =>
-  (kw as any).targetLevel ?? (typeof kw.scope === 'string' ? (kw.scope as ExclusionTargetLevel) : (kw.adGroupId || kw.scope?.adGroup ? 'AD_GROUP' : kw.campaignId || kw.scope?.campaign || kw.firstSeenCampaign ? 'CAMPAIGN' : 'ACCOUNT'));
+  (kw as unknown as { targetLevel?: ExclusionTargetLevel }).targetLevel ?? (typeof kw.scope === 'string' ? (kw.scope as ExclusionTargetLevel) : (kw.adGroupId || kw.scope?.adGroup ? 'AD_GROUP' : kw.campaignId || kw.scope?.campaign || kw.firstSeenCampaign ? 'CAMPAIGN' : 'ACCOUNT'));
 
 export const KeywordVirtualGrid: React.FC<{ className?: string }> = ({ className = '' }) => {
   const { keywords, filteredKeywords, thresholds, selectedKeyword, setSelectedKeyword, currency, isLoading, isIngesting, errorMessage, setKeywords } = useSieveStore();
@@ -54,7 +55,7 @@ export const KeywordVirtualGrid: React.FC<{ className?: string }> = ({ className
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedHashes, setSelectedHashes] = useState<Set<string>>(new Set());
 
-  const storeQualified = useSieveStore((s) => (s as any).qualifiedNegativeRules);
+  const storeQualified = useSieveStore((s) => (s as unknown as { qualifiedNegativeRules?: PersistedNegativeKeyword[] }).qualifiedNegativeRules);
   const qualifiedRules = useMemo(() => Array.isArray(storeQualified) ? storeQualified : selectQualifiedNegativeRules({ keywords, filteredKeywords, thresholds }), [storeQualified, keywords, filteredKeywords, thresholds]);
 
   const displayedItems = useMemo(() => {

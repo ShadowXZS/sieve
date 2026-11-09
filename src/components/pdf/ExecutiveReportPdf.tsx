@@ -20,17 +20,13 @@ import { registerPdfFonts } from '../../reports/pdf/fonts/index.ts';
 // Register offline TrueType fonts
 registerPdfFonts();
 
-/**
- * PDF conversion formatting helper.
- * Rounds conversion counts to integer strings with comma formatting (e.g., 1052243.1 -> "1,052,243").
- */
-export function formatConversionCount(val: number): string {
-  if (val == null || !Number.isFinite(val)) return '0';
-  return Math.round(val).toLocaleString('en-US');
-}
+import {
+  formatConversionCount,
+  formatPdfConversions,
+  formatConversions,
+} from '../../reports/pdf/formatters.ts';
 
-export const formatPdfConversions = formatConversionCount;
-export const formatConversions = formatConversionCount;
+export { formatConversionCount, formatPdfConversions, formatConversions };
 
 export const CARD_4_TITLE = 'REALLOCATION YIELD';
 
@@ -41,7 +37,7 @@ export const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 28,
     paddingHorizontal: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: EXECUTIVE_COLOR_TOKENS.neutral.white,
   },
   gridCards: {
     flexDirection: 'row',
@@ -53,9 +49,9 @@ export const styles = StyleSheet.create({
     marginHorizontal: 3,
     padding: 7,
     borderRadius: 4,
-    backgroundColor: '#f8fafc',
+    backgroundColor: EXECUTIVE_COLOR_TOKENS.neutral.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: EXECUTIVE_COLOR_TOKENS.neutral.border,
   },
   kpiCardHeader: {
     flexDirection: 'row',
@@ -81,7 +77,7 @@ export const styles = StyleSheet.create({
   },
   kpiCaption: {
     fontSize: 6.5,
-    color: '#71717a',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.textMuted,
   },
 });
 

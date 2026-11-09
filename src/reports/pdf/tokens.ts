@@ -56,6 +56,10 @@ export const EXECUTIVE_COLOR_TOKENS = {
     white: '#ffffff',
     dark: '#09090b',
     darkSlate: '#0f172a',
+    slate600: '#475569',
+    slate700: '#334155',
+    zinc200: '#e4e4e7',
+    pink600: '#db2777',
   },
 } as const;
 

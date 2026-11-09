@@ -35,9 +35,9 @@ export const cardStyles = {
     marginHorizontal: 3,
     padding: 7,
     borderRadius: 4,
-    backgroundColor: '#f8fafc',
+    backgroundColor: EXECUTIVE_COLOR_TOKENS.neutral.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: EXECUTIVE_COLOR_TOKENS.neutral.border,
   },
   kpiTitle: {
     fontSize: 7.5,
@@ -118,7 +118,7 @@ export const cardStyles = {
   },
   cardCaption: {
     fontSize: PDF_TYPOGRAPHY.fontSize.caption,
-    color: '#64748b',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.textSecondary,
     marginTop: 1.5,
     lineHeight: 1.25,
   },

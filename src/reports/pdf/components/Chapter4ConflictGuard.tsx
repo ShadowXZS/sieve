@@ -24,7 +24,7 @@ export const Chapter4ConflictGuard: React.FC<Chapter4Props> = ({ collisions }) =
         <Text style={styles.pageNumber}>Page 4 / 4</Text>
       </View>
 
-      <View style={[styles.chapterBanner, { borderLeftColor: '#db2777' }]}>
+      <View style={[styles.chapterBanner, { borderLeftColor: EXECUTIVE_COLOR_TOKENS.neutral.pink600 }]}>
         <Text style={styles.chapterTitle}>Safe-List Protection & Execution Roadmap</Text>
         <Text style={styles.chapterSubtitle}>
           Verification that negative keyword exclusion rules do not block active converting queries or brand terms.

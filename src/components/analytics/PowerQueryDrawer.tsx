@@ -13,7 +13,7 @@ import { topSpendersPreset, zeroConvWastePreset, campaignRollupPreset, auctionCo
 
 export interface PowerQueryDrawerProps {
   isOpen?: boolean; onClose?: () => void; workerPool?: SieveWorkerPool; adapter?: DuckDbAdapter;
-  onExecuteQuery?: (sql: string) => Promise<{ columns: string[]; rows: Array<Record<string, any>>; rowCount: number; executionTimeMs: number }>;
+  onExecuteQuery?: (sql: string) => Promise<{ columns: string[]; rows: Array<Record<string, unknown>>; rowCount: number; executionTimeMs: number }>;
   onExplainQuery?: (sql: string) => Promise<{ plan: string; operators?: readonly string[] } | string>;
 }
 
@@ -61,7 +61,8 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
         else {
           const run = onExecuteQuery || (workerPool ? (s: string) => workerPool.executeSQL(s) : null);
           const raw = run ? await run(`EXPLAIN ${trimmed}`) : await new DuckDbAdapter().explainQuery(trimmed);
-          setExplainPlan(typeof raw === 'string' ? raw : (raw as any).plan || String((raw as any).rows?.[0]?.explain_value ?? (raw as any).rows?.[0]?.plan ?? JSON.stringify(raw)));
+          const typedRaw = raw as { plan?: string; rows?: Array<{ explain_value?: string; plan?: string }> };
+          setExplainPlan(typeof raw === 'string' ? raw : typedRaw.plan || String(typedRaw.rows?.[0]?.explain_value ?? typedRaw.rows?.[0]?.plan ?? JSON.stringify(raw)));
         }
       } else {
         setExplainPlan(null);
@@ -98,7 +99,7 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
     setTimeout(() => setStagedCount(null), 2000);
   };
 
-  const toCsv = () => [sqlQueryResult!.columns.join(','), ...sqlQueryResult!.rows.map((r) => sqlQueryResult!.columns.map((c) => JSON.stringify((r as any)[c] ?? '')).join(','))].join('\n');
+  const toCsv = () => [sqlQueryResult!.columns.join(','), ...sqlQueryResult!.rows.map((r) => sqlQueryResult!.columns.map((c) => JSON.stringify((r as Record<string, unknown>)[c] ?? '')).join(','))].join('\n');
   const handleCopy = async (fmt: 'csv' | 'json') => { if (!sqlQueryResult?.rows.length) return; await copyToClipboard(fmt === 'json' ? JSON.stringify(sqlQueryResult.rows, null, 2) : toCsv()); setCopiedFormat(fmt); setTimeout(() => setCopiedFormat(null), 1500); };
   const handleDownloadCsv = () => { if (!sqlQueryResult?.rows.length) return; const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([toCsv()], { type: 'text/csv' })), download: `power_query_${Date.now()}.csv` }); a.click(); };
 
@@ -223,7 +224,7 @@ export const PowerQueryDrawer: React.FC<PowerQueryDrawerProps> = ({ isOpen: prop
                           <tr key={idx} className="hover:bg-zinc-900/50 transition-colors tabular-nums">
                             <td className="py-2 px-3 text-center text-zinc-600 select-none">{idx + 1}</td>
                             {sqlQueryResult.columns.map((c) => {
-                              const v = (row as any)[c]; const isN = typeof v === 'number' || typeof v === 'bigint'; const isB = typeof v === 'boolean';
+                              const v = (row as Record<string, unknown>)[c]; const isN = typeof v === 'number' || typeof v === 'bigint'; const isB = typeof v === 'boolean';
                               return (<td key={c} className={`py-2 px-3 whitespace-nowrap ${isN ? 'text-right text-emerald-300' : isB ? 'text-indigo-300' : 'text-zinc-300'}`}>{isB ? (v ? 'true' : 'false') : v != null ? String(v) : 'NULL'}</td>);
                             })}
                           </tr>

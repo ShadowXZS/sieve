@@ -54,7 +54,7 @@ export interface AuditOnePagerProps {
 
 export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
   organizationTitle = 'Sieve PPC Forensic Audit',
-  accentColor = '#10b981',
+  accentColor = EXECUTIVE_COLOR_TOKENS.safeList.border,
   currencySymbol = '$',
   notes,
   kpi,
@@ -152,7 +152,7 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Deterministic Capital Reallocation Model</Text>
           <View style={styles.reallocBox}>
-            <View style={[styles.reallocCol, { borderRightWidth: 1, borderRightColor: '#e2e8f0' }]}>
+            <View style={[styles.reallocCol, { borderRightWidth: 1, borderRightColor: EXECUTIVE_COLOR_TOKENS.neutral.border }]}>
               <View style={styles.reallocRow}>
                 <Text style={styles.reallocLabel}>Current Account CPA:</Text>
                 <Text style={styles.reallocValue}>{formatCurrency(reconciledReallocation.currentCPA, activeCurrency)}</Text>
@@ -190,7 +190,7 @@ export const AuditOnePager: React.FC<AuditOnePagerProps> = ({
 
         {effectiveNotes && (
           <View style={[styles.notesBox, { borderLeftColor: accentColor }]}>
-            <Text style={[styles.cardLabel, { marginBottom: 2, color: '#334155' }]}>Executive Directives & Strategic Scope</Text>
+            <Text style={[styles.cardLabel, { marginBottom: 2, color: EXECUTIVE_COLOR_TOKENS.neutral.slate700 }]}>Executive Directives & Strategic Scope</Text>
             <Text style={styles.notesText}>{effectiveNotes}</Text>
           </View>
         )}

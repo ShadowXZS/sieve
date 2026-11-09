@@ -11,7 +11,7 @@
 
 import React from 'react';
 import { Page, View, Text } from '@react-pdf/renderer';
-import { executivePdfStyles as styles } from '../styles.ts';
+import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from '../styles.ts';
 import {
   type KPISummary,
   type SieveMetricsMicros,
@@ -229,7 +229,7 @@ export const Chapter1Summary: React.FC<Chapter1Props> = ({
 
       {notes && (
         <View style={[styles.calloutBox, { borderLeftWidth: 3, borderLeftColor: accentColor }]}>
-          <Text style={[styles.cardLabel, { color: '#334155' }]}>Audit Scope & Directives</Text>
+          <Text style={[styles.cardLabel, { color: EXECUTIVE_COLOR_TOKENS.neutral.slate700 }]}>Audit Scope & Directives</Text>
           <Text style={[styles.calloutText, { marginTop: 3 }]}>{notes}</Text>
         </View>
       )}

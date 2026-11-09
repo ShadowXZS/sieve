@@ -6,7 +6,7 @@ import React, { useMemo } from 'react';
 import { GitBranch, ArrowRight, TrendingUp, CheckCircle2 } from 'lucide-react';
 import { useSieveStore, formatCurrencyMicros, toMicros } from '../../state/useSieveStore.ts';
 import { MatchDilutionEngine } from '../../domain/engines/dilution_engine.ts';
-import type { DilutionSummary, SearchTermRecord, QueryString, ClickCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
+import type { DilutionSummary, SearchTermRecord, QueryString, ClickCount, ImpressionCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
 
 export interface DilutionAuditCardProps {
   className?: string;
@@ -50,7 +50,7 @@ export const DilutionAuditCard: React.FC<DilutionAuditCardProps> = ({ className 
         adGroupName: k.adGroupId || 'adgroup',
         matchType: (isExact ? 'EXACT' : 'BROAD') as PlatformMatchType,
         clicks,
-        impressions: 0 as any,
+        impressions: 0 as unknown as ImpressionCount,
         conversions: k.conversions ?? 0,
         spendMicros,
         revenueMicros: 0n as CurrencyMicros,

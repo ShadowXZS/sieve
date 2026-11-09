@@ -46,7 +46,7 @@ export class SieveWorkerCore {
     dropTable('search_terms').catch(() => {});
   }
 
-  public async handleCommand(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
+  public async handleCommand(cmd: Record<string, unknown>): Promise<{ response: Record<string, unknown>; transferables: Transferable[] }> {
     try {
       switch (cmd.type) {
         case 'PARSE_AND_INGEST':
@@ -81,8 +81,8 @@ export class SieveWorkerCore {
     }
   }
 
-  private async processIngest(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
-    const rawBuf = cmd.buffer || cmd.chunkBuffer;
+  private async processIngest(cmd: Record<string, unknown>): Promise<{ response: Record<string, unknown>; transferables: Transferable[] }> {
+    const rawBuf = (cmd.buffer || cmd.chunkBuffer) as ArrayBuffer;
     if (!rawBuf || rawBuf.byteLength < 8) {
       throw new Error('PARSE_ERROR: Invalid CSV structure or corrupted binary payload (< 8 bytes)');
     }
@@ -103,10 +103,11 @@ export class SieveWorkerCore {
     if (!records || records.length === 0) throw new Error('PARSE_ERROR: No valid search term records found');
 
     this.cachedRecords = records;
-    const targetCpa = (BigInt(Math.round(cmd.targetCPA ?? 50)) * 1_000_000n) as CurrencyMicros;
-    this.shield = new ConversionShieldEngine({ minNonConvertingClicks: cmd.minClicks ?? 1 });
+    const targetCpaVal = typeof cmd.targetCPA === 'number' ? cmd.targetCPA : 50;
+    const targetCpa = (BigInt(Math.round(targetCpaVal)) * 1_000_000n) as CurrencyMicros;
+    this.shield = new ConversionShieldEngine({ minNonConvertingClicks: typeof cmd.minClicks === 'number' ? cmd.minClicks : 1 });
     const rules = this.shield.emitQualifiedNegativeCandidates(records, targetCpa);
-    const candidates = this.mapRulesToCandidates(rules, records);
+    const candidates = this.mapRecordsToCandidates(rules, records, targetCpa);
     const bleedRoots = this.tokenizer.topBleedRoots(records, 10);
     this.dilution.detectDilution(records);
     this.econometric.computeSpendWaterfall(records, targetCpa);
@@ -133,7 +134,7 @@ export class SieveWorkerCore {
     return { response, transferables: [arrowIpcBuffer] };
   }
 
-  private processRefilter(cmd: any): { response: any; transferables: Transferable[] } {
+  private processRefilter(cmd: Record<string, unknown>): { response: Record<string, unknown>; transferables: Transferable[] } {
     const t0 = performance.now();
     if (!this.cachedRecords || this.cachedRecords.length === 0) {
       return {
@@ -142,9 +143,9 @@ export class SieveWorkerCore {
       };
     }
 
-    const minClicks = cmd.minClicks ?? 1;
-    const minConf = cmd.confidenceThreshold ?? 0.8;
-    const targetCpa = (BigInt(Math.round(cmd.targetCPA ?? 50)) * 1_000_000n) as CurrencyMicros;
+    const minClicks = (cmd.minClicks as number) ?? 1;
+    const minConf = (cmd.confidenceThreshold as number) ?? 0.8;
+    const targetCpa = (BigInt(Math.round((cmd.targetCPA as number) ?? 50)) * 1_000_000n) as CurrencyMicros;
 
     this.shield = new ConversionShieldEngine({ minNonConvertingClicks: minClicks });
     const rules = this.shield.emitQualifiedNegativeCandidates(this.cachedRecords, targetCpa);
@@ -158,9 +159,9 @@ export class SieveWorkerCore {
     };
   }
 
-  private async processQuery(cmd: any): Promise<{ response: any; transferables: Transferable[] }> {
+  private async processQuery(cmd: Record<string, unknown>): Promise<{ response: Record<string, unknown>; transferables: Transferable[] }> {
     try {
-      const res = await executeDuckDBSQL(cmd.query);
+      const res = await executeDuckDBSQL(cmd.query as string);
       return {
         response: {
           type: cmd.type === 'EXECUTE_SQL_QUERY' ? 'EXECUTE_SQL_QUERY_RESULT' : 'RUN_QUERY_RESULT',
@@ -194,30 +195,47 @@ export class SieveWorkerCore {
     }
   }
 
+  private mapRecordsToCandidates(rules: readonly any[], records: readonly SearchTermRecord[], targetCpaMicros: CurrencyMicros): WorkerCandidate[] {
+    const ruleMap = new Map<string, any>();
+    for (const rule of rules) ruleMap.set(rule.candidateTerm.replace(/[\[\]"']/g, '').toLowerCase().trim(), rule);
+    return records.map((r) => {
+      const rule = ruleMap.get(r.rawQuery.toLowerCase().trim());
+      if (rule) {
+        return {
+          keyword: rule.candidateTerm, matchType: (rule.recommendedMatchType || 'broad').toLowerCase() as 'broad' | 'phrase' | 'exact',
+          confidenceScore: rule.confidenceScore ?? 0.8, marginalWaste: Number(rule.marginalWasteMicros ?? 0n) / 1_000_000,
+          hasCollision: rule.verdict === 'EXACT_BRACKET_LOCK', clicks: Number(r.clicks), cost: Number(r.spendMicros) / 1_000_000, conversions: r.conversions,
+        };
+      }
+      const costFloat = Number(r.spendMicros) / 1_000_000;
+      const targetCpaFloat = Number(targetCpaMicros) / 1_000_000;
+      const waste = r.conversions <= 0 ? costFloat : Math.max(0, costFloat - r.conversions * targetCpaFloat);
+      return {
+        keyword: r.rawQuery, matchType: (r.matchType || 'BROAD').toLowerCase() as 'broad' | 'phrase' | 'exact',
+        confidenceScore: r.clicks > 0 ? Math.min(0.99, Math.max(0.65, Math.round((1 - r.conversions / (r.clicks + 1)) * 100) / 100)) : 0.8,
+        marginalWaste: waste, hasCollision: false, clicks: Number(r.clicks), cost: costFloat, conversions: r.conversions,
+      };
+    });
+  }
+
   private mapRulesToCandidates(rules: readonly any[], records: readonly SearchTermRecord[]): WorkerCandidate[] {
     const recordMap = new Map<string, SearchTermRecord>();
     for (const r of records) recordMap.set(r.rawQuery.toLowerCase(), r);
-
     return rules.map((rule) => {
-      const clean = rule.candidateTerm.replace(/[\[\]]/g, '').toLowerCase();
-      const rec = recordMap.get(clean);
+      const rec = recordMap.get(rule.candidateTerm.replace(/[\[\]]/g, '').toLowerCase());
       return {
-        keyword: rule.candidateTerm,
-        matchType: (rule.recommendedMatchType || 'broad').toLowerCase() as 'broad' | 'phrase' | 'exact',
-        confidenceScore: rule.confidenceScore ?? 0.8,
-        marginalWaste: Number(rule.marginalWasteMicros ?? 0n) / 1_000_000,
-        hasCollision: rule.verdict === 'EXACT_BRACKET_LOCK',
-        clicks: Number(rec?.clicks ?? 0),
-        cost: Number(rec?.spendMicros ?? 0n) / 1_000_000,
+        keyword: rule.candidateTerm, matchType: (rule.recommendedMatchType || 'broad').toLowerCase() as 'broad' | 'phrase' | 'exact',
+        confidenceScore: rule.confidenceScore ?? 0.8, marginalWaste: Number(rule.marginalWasteMicros ?? 0n) / 1_000_000,
+        hasCollision: rule.verdict === 'EXACT_BRACKET_LOCK', clicks: Number(rec?.clicks ?? 0), cost: Number(rec?.spendMicros ?? 0n) / 1_000_000,
       };
     });
   }
 }
 
-if (typeof self !== 'undefined' && typeof (self as any).postMessage === 'function' && typeof window === 'undefined') {
+if (typeof self !== 'undefined' && 'postMessage' in self && typeof window === 'undefined') {
   const core = new SieveWorkerCore();
   self.addEventListener('message', async (e: MessageEvent) => {
-    const { response, transferables } = await core.handleCommand(e.data);
-    (self as any).postMessage(response, transferables);
+    const { response, transferables } = await core.handleCommand(e.data as Record<string, unknown>);
+    (self as unknown as Worker).postMessage(response, transferables);
   });
 }

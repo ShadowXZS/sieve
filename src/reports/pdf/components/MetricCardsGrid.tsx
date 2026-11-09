@@ -12,7 +12,7 @@ import { View, Text } from '@react-pdf/renderer';
 import { executivePdfStyles as styles, EXECUTIVE_COLOR_TOKENS } from '../styles.ts';
 import type { ExecutiveAnalytics } from '../../../utils/executiveAnalytics.ts';
 import type { ReallocationModel } from '../../reallocation.ts';
-import { formatConversionCount } from '../../../components/pdf/ExecutiveReportPdf.tsx';
+import { formatConversionCount } from '../formatters.ts';
 
 export interface MetricCardsGridProps {
   analytics: ExecutiveAnalytics;

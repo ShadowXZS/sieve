@@ -26,7 +26,7 @@ export interface SieveVaultPayload {
     appVersion?: string;
     totalWasteRecovered?: number;
     platformCount?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -69,7 +69,7 @@ async function deriveEncryptionKey(
 export async function exportVaultToBuffer(
   db: SieveDatabase,
   passphrase: string,
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 ): Promise<Uint8Array> {
   if (!passphrase || passphrase.length < 8) {
     throw new Error('Passphrase must be at least 8 characters in length');

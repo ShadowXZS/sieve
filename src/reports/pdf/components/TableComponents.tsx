@@ -72,9 +72,9 @@ export const TopExclusionsTable: React.FC<TopExclusionsTableProps> = ({
                   width: '16%',
                   textAlign: 'center',
                   color: showConfidence
-                    ? '#334155'
+                    ? EXECUTIVE_COLOR_TOKENS.neutral.slate700
                     : kw.hasCollision
-                    ? '#db2777'
+                    ? EXECUTIVE_COLOR_TOKENS.neutral.pink600
                     : EXECUTIVE_COLOR_TOKENS.safeList.primary,
                 },
               ]}

@@ -142,7 +142,7 @@ export const SafeListConflictsTable: React.FC<{
         <Text style={[styles.tableCell, { width: '42%', color: EXECUTIVE_COLOR_TOKENS.safeList.primary }]}>
           {c.collidingTerm || (c.collidingSafeTerms && c.collidingSafeTerms[0]) || 'Active Converting Query'}
         </Text>
-        <Text style={[styles.tableCellBold, { width: '20%', textAlign: 'center', color: '#db2777' }]}>
+        <Text style={[styles.tableCellBold, { width: '20%', textAlign: 'center', color: EXECUTIVE_COLOR_TOKENS.neutral.pink600 }]}>
           Exact Lock
         </Text>
       </View>

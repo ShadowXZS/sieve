@@ -44,7 +44,7 @@ export const tableAndCalloutStyles = {
     fontFamily: CERTIFIED_PDF_FONT,
     fontWeight: 'bold',
     fontSize: PDF_TYPOGRAPHY.fontSize.tableHeader,
-    color: '#475569',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate600,
     textTransform: 'uppercase',
   },
   tableRow: {
@@ -52,7 +52,7 @@ export const tableAndCalloutStyles = {
     paddingVertical: 6,
     paddingHorizontal: 8,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: EXECUTIVE_COLOR_TOKENS.neutral.border,
   },
   tableRowEven: {
     backgroundColor: EXECUTIVE_COLOR_TOKENS.neutral.white,
@@ -62,13 +62,13 @@ export const tableAndCalloutStyles = {
   },
   tableCell: {
     fontSize: PDF_TYPOGRAPHY.fontSize.tableBody,
-    color: '#334155',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate700,
   },
   tableCellBold: {
     fontSize: PDF_TYPOGRAPHY.fontSize.tableBody,
     fontFamily: CERTIFIED_PDF_FONT,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.darkSlate,
   },
   formulaCallout: {
     backgroundColor: EXECUTIVE_COLOR_TOKENS.neutral.bg,
@@ -112,7 +112,7 @@ export const tableAndCalloutStyles = {
   },
   formulaSubstitutions: {
     fontSize: 7.5,
-    color: '#334155',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate700,
     lineHeight: 1.3,
   },
   formulaOutcome: {
@@ -142,13 +142,13 @@ export const tableAndCalloutStyles = {
   },
   reallocLabel: {
     fontSize: 7.5,
-    color: '#64748b',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.textSecondary,
   },
   reallocValue: {
     fontSize: 7.5,
     fontFamily: CERTIFIED_PDF_FONT,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.darkSlate,
   },
   calloutBox: {
     padding: 8,
@@ -160,7 +160,7 @@ export const tableAndCalloutStyles = {
   },
   calloutText: {
     fontSize: 7.5,
-    color: '#334155',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate700,
     lineHeight: 1.35,
   },
   notesBox: {
@@ -172,7 +172,7 @@ export const tableAndCalloutStyles = {
   },
   notesText: {
     fontSize: 7.5,
-    color: '#334155',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate700,
     lineHeight: 1.35,
   },
 } as const;

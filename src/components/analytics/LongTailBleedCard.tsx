@@ -7,7 +7,7 @@ import { Layers, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useSieveStore, formatCurrencyMicros, toMicros } from '../../state/useSieveStore.ts';
 import { NgramTokenizerEngine } from '../../domain/engines/tokenizer_engine.ts';
 import { isSyntacticStopword } from '../../domain/engines/stopwords.ts';
-import type { AggregatedTokenMetric, SearchTermRecord, QueryString, ClickCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
+import type { AggregatedTokenMetric, SearchTermRecord, QueryString, ClickCount, ImpressionCount, CurrencyMicros, PlatformMatchType } from '../../domain/types/index.ts';
 
 export interface LongTailBleedCardProps {
   className?: string;
@@ -41,7 +41,7 @@ export const LongTailBleedCard: React.FC<LongTailBleedCardProps> = ({ className 
           adGroupName: k.adGroupId || 'adgroup',
           matchType: (k.matchType ? (k.matchType.toUpperCase() as PlatformMatchType) : 'BROAD'),
           clicks,
-          impressions: 0 as any,
+          impressions: 0 as unknown as ImpressionCount,
           conversions: k.conversions ?? 0,
           spendMicros,
           revenueMicros: 0n as CurrencyMicros,

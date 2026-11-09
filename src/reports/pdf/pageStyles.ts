@@ -38,7 +38,7 @@ export const pageStyles = {
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     borderBottomWidth: 1.5,
-    borderBottomColor: '#e4e4e7',
+    borderBottomColor: EXECUTIVE_COLOR_TOKENS.neutral.zinc200,
     paddingBottom: 10,
     marginBottom: 12,
   },
@@ -47,7 +47,7 @@ export const pageStyles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1.5,
-    borderBottomColor: '#e4e4e7',
+    borderBottomColor: EXECUTIVE_COLOR_TOKENS.neutral.zinc200,
     paddingBottom: 10,
     marginBottom: 14,
   },
@@ -100,7 +100,7 @@ export const pageStyles = {
   },
   chapterSubtitle: {
     fontSize: 8,
-    color: '#475569',
+    color: EXECUTIVE_COLOR_TOKENS.neutral.slate600,
     lineHeight: 1.3,
   },
   badge: {
@@ -128,7 +128,7 @@ export const pageStyles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#e4e4e7',
+    borderTopColor: EXECUTIVE_COLOR_TOKENS.neutral.zinc200,
     paddingTop: 6,
   },
   footerDeck: {
@@ -140,7 +140,7 @@ export const pageStyles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#e4e4e7',
+    borderTopColor: EXECUTIVE_COLOR_TOKENS.neutral.zinc200,
     paddingTop: 6,
   },
   footerText: {

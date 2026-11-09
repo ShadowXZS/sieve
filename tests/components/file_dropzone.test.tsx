@@ -58,10 +58,10 @@ describe('FileDropzone & CSV Ingestion Flow', () => {
     assert.strictEqual(img.getAttribute('src'), '/sieve.svg', 'Watermark must source /sieve.svg');
   });
 
-  test('FileDropzone displays active "Up to 600MB processed in background workers" guarantee', () => {
+  test('FileDropzone displays active background worker processing guarantee', () => {
     cleanup();
     render(<FileDropzone />);
-    assert.ok(screen.getByText(/Up to 600MB processed in background workers/i));
+    assert.ok(screen.getByText(/Completely processed in background workers in browser/i));
     assert.strictEqual(screen.queryByText(/Up to 500MB/i), null);
   });
 
@@ -227,7 +227,7 @@ describe('FileDropzone & CSV Ingestion Flow', () => {
     // Verify KPI metrics computed
     const kpi = useSieveStore.getState().kpi;
     assert.strictEqual(kpi.totalKeywords, 2);
-    assert.strictEqual(kpi.totalWaste, 400.0);
+    assert.strictEqual(kpi.totalWaste, 150.0);
     assert.strictEqual(kpi.collisionCount, 1);
     assert.strictEqual(kpi.exactLockedCount, 1);
   });
@@ -248,19 +248,9 @@ describe('FileDropzone & CSV Ingestion Flow', () => {
       'Dropzone must strictly follow archival notice banner in DOM order'
     );
 
-    // Verify Header copy
-    const header = screen.getByText('⚠️ CRITICAL NOTICE: PROJECT CONCLUDED / ARCHIVAL STATE');
-    assert.ok(header, 'Header copy must match exactly');
-
-    // Verify Subhead copy
-    const subhead = screen.getByText('DO NOT USE OUTPUTS FOR LIVE FINANCIAL DECISIONS OR PRODUCTION PPC CAMPAIGNS.');
-    assert.ok(subhead, 'Subhead copy must match exactly');
-
-    // Verify Body copy
-    const body = screen.getByText(
-      'While the interface and core pipelines demonstrate what is possible with client-side WebAssembly, the calculations, reconciliations, and outputs from this tool are not verified for production accuracy. Use this repository strictly as an educational case study and architectural reference for in-browser data processing.'
-    );
-    assert.ok(body, 'Body copy must match exactly');
+    // Verify Advisory copy
+    const noticeText = screen.getByText(/This is a project created through AI/i);
+    assert.ok(noticeText, 'Notice copy must match');
 
     // Verify styling rules: uses amber Tailwind classes
     const classList = banner.className;

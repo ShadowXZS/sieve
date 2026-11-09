@@ -7,8 +7,8 @@
  * File line ceiling: <= 250 lines.
  */
 
-import { SieveWorkerCore } from './sieve.worker.ts';
-import { WorkerExecutionError } from './protocol.ts';
+import { SieveWorkerCore, type WorkerCandidate } from './sieve.worker.ts';
+import { WorkerExecutionError, type PersistedNegativeKeyword } from './protocol.ts';
 
 export interface WorkerPoolOptions { concurrency?: number; }
 
@@ -17,19 +17,20 @@ export function clampConcurrency(options?: WorkerPoolOptions): number {
   return Math.min(16, Math.max(2, options?.concurrency ?? hardware));
 }
 
-export function extractTransferables(command: any): Transferable[] {
+export function extractTransferables(command: unknown): Transferable[] {
   const list: Transferable[] = [];
-  if (command?.buffer instanceof ArrayBuffer) list.push(command.buffer);
-  if (command?.chunkBuffer instanceof ArrayBuffer) list.push(command.chunkBuffer);
-  if (command?.payload?.fileBuffer instanceof ArrayBuffer) list.push(command.payload.fileBuffer);
+  const cmd = command as { buffer?: unknown; chunkBuffer?: unknown; payload?: { fileBuffer?: unknown } };
+  if (cmd?.buffer instanceof ArrayBuffer) list.push(cmd.buffer);
+  if (cmd?.chunkBuffer instanceof ArrayBuffer) list.push(cmd.chunkBuffer);
+  if (cmd?.payload?.fileBuffer instanceof ArrayBuffer) list.push(cmd.payload.fileBuffer);
   return list;
 }
 
 interface QueuedTask {
-  command: any;
+  command: Record<string, unknown>;
   transferables: Transferable[];
   targetWorkerId?: number;
-  resolve: (value: any) => void;
+  resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
 }
 
@@ -40,7 +41,7 @@ class WorkerSlot {
   private core: SieveWorkerCore;
   private port1: MessagePort;
   private port2: MessagePort;
-  private currentResolve: ((value: any) => void) | null = null;
+  private currentResolve: ((value: unknown) => void) | null = null;
   private currentReject: ((reason?: unknown) => void) | null = null;
 
   constructor(id: number) {
@@ -83,7 +84,7 @@ class WorkerSlot {
     };
   }
 
-  public dispatch(command: any, transferables: Transferable[], resolve: (v: any) => void, reject: (r?: unknown) => void) {
+  public dispatch(command: Record<string, unknown>, transferables: Transferable[], resolve: (v: unknown) => void, reject: (r?: unknown) => void) {
     this.busy = true;
     this.currentResolve = resolve;
     this.currentReject = reject;
@@ -119,12 +120,12 @@ export class SieveWorkerPool {
   public get queueDepth(): number { return this.taskQueue.length; }
   public getAvailableWorkerId(): number { return this.findNextAvailableWorker()?.id ?? this.roundRobinIdx; }
 
-  public async execute(command: any, targetWorkerId?: number, extraTransferables?: Transferable[]): Promise<any> {
+  public async execute<T = Record<string, unknown>>(command: Record<string, unknown>, targetWorkerId?: number, extraTransferables?: Transferable[]): Promise<T> {
     if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
     const transferables = [...extractTransferables(command), ...(extraTransferables || [])];
 
     return new Promise((resolve, reject) => {
-      const task: QueuedTask = { command, transferables, targetWorkerId, resolve, reject };
+      const task: QueuedTask = { command, transferables, targetWorkerId, resolve: resolve as (v: unknown) => void, reject };
       const worker = targetWorkerId !== undefined && targetWorkerId < this.workers.length
         ? this.workers[targetWorkerId]
         : this.findNextAvailableWorker();
@@ -140,7 +141,7 @@ export class SieveWorkerPool {
   public async parseAndIngest(
     csvBuffer: ArrayBuffer,
     options?: { minClicks?: number; confidenceThreshold?: number }
-  ): Promise<{ recordCount: number; candidates: any[]; arrowIpcBuffer: ArrayBuffer; tokensCount: number }> {
+  ): Promise<{ recordCount: number; candidates: WorkerCandidate[]; arrowIpcBuffer: ArrayBuffer; tokensCount: number }> {
     if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
     if (csvBuffer.byteLength < 8) return this.execute({ type: 'PARSE_AND_INGEST', requestId: `req_${Date.now()}`, buffer: csvBuffer });
 
@@ -153,7 +154,7 @@ export class SieveWorkerPool {
       const chunkCount = Math.min(this.concurrency, Math.max(1, Math.ceil(dataLines.length / 2)));
       const chunkSize = Math.ceil(dataLines.length / chunkCount);
       const enc = new TextEncoder();
-      const promises: Promise<any>[] = [];
+      const promises: Promise<{ candidates?: WorkerCandidate[]; recordCount?: number; tokensCount?: number; arrowIpcBuffer?: ArrayBuffer }>[] = [];
 
       for (let c = 0; c < chunkCount; c++) {
         const slice = dataLines.slice(c * chunkSize, (c + 1) * chunkSize);
@@ -166,23 +167,23 @@ export class SieveWorkerPool {
       const candidates = results.flatMap((r) => r.candidates || []);
       const recordCount = results.reduce((sum, r) => sum + (r.recordCount || 0), 0);
       const tokensCount = results.reduce((sum, r) => sum + (r.tokensCount || 0), 0);
-      return { recordCount, candidates, arrowIpcBuffer: results[0]?.arrowIpcBuffer, tokensCount };
+      return { recordCount, candidates, arrowIpcBuffer: results[0]?.arrowIpcBuffer as ArrayBuffer, tokensCount };
     }
 
     return this.execute({ type: 'PARSE_AND_INGEST', requestId: `req_${Date.now()}`, buffer: csvBuffer, ...options });
   }
 
-  public async refilterThresholds(options: { minClicks: number; confidenceThreshold: number }): Promise<{ candidates: any[]; durationMs: number; reparsed: boolean }> {
+  public async refilterThresholds(options: { minClicks: number; confidenceThreshold: number }): Promise<{ candidates: WorkerCandidate[]; durationMs: number; reparsed: boolean }> {
     if (this.terminated) throw new Error('SieveWorkerPool has been terminated');
     const t0 = performance.now();
     const command = { type: 'REFILTER_THRESHOLDS', requestId: `refilter_${Date.now()}`, ...options };
-    const results = await Promise.all(this.workers.filter((w) => !w.terminated).map((w) => this.execute(command, w.id)));
+    const results = await Promise.all(this.workers.filter((w) => !w.terminated).map((w) => this.execute<{ candidates?: WorkerCandidate[] }>(command, w.id)));
     return { candidates: results.flatMap((r) => r.candidates || []), durationMs: performance.now() - t0, reparsed: false };
   }
 
-  public async executeIngestion(taskId: string, chunkBuffer: ArrayBuffer, isFinal: boolean, workerId?: number, targetCPA?: number) {
-    const res = await this.execute({ type: 'INGEST_CSV_CHUNK', requestId: taskId, chunkBuffer, isFinal, targetCPA }, workerId);
-    return { statusCode: res.statusCode ?? 0, workerId: res.workerId ?? 0, bytesConsumed: res.bytesConsumed ?? chunkBuffer.byteLength, keywords: res.keywords ?? res.candidates };
+  public async executeIngestion(taskId: string, chunkBuffer: ArrayBuffer, isFinal: boolean, workerId?: number, targetCPA?: number): Promise<{ statusCode: number; workerId: number; bytesConsumed: number; keywords: PersistedNegativeKeyword[] }> {
+    const res = await this.execute<{ statusCode?: number; workerId?: number; bytesConsumed?: number; keywords?: PersistedNegativeKeyword[]; candidates?: PersistedNegativeKeyword[] }>({ type: 'INGEST_CSV_CHUNK', requestId: taskId, chunkBuffer, isFinal, targetCPA }, workerId);
+    return { statusCode: res.statusCode ?? 0, workerId: res.workerId ?? 0, bytesConsumed: res.bytesConsumed ?? chunkBuffer.byteLength, keywords: (res.keywords ?? res.candidates ?? []) as PersistedNegativeKeyword[] };
   }
 
   public async executeSQL(query: string, workerId?: number): Promise<any> {

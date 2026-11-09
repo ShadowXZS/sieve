@@ -153,7 +153,7 @@ export const useSieveStore = create<SieveState>((set, get) => ({
     const raw = payload.records || []; const cur = payload.currency || get().currency || DEFAULT_CURRENCY;
     const { filtered, kpi } = deriveDomainMetrics(raw, get().thresholds, cur);
     const finalKPI = payload.summary ? { ...kpi, ...payload.summary, totalWasteMicros: payload.summary.totalWaste !== undefined ? toMicros(payload.summary.totalWaste) : kpi.totalWasteMicros, actionableWasteMicros: payload.summary.totalWaste !== undefined ? toMicros(payload.summary.totalWaste) : kpi.actionableWasteMicros } : kpi;
-    set({ records: raw, keywords: raw, filteredRecords: filtered, filteredKeywords: filtered, kpi: finalKPI, summary: finalKPI, currency: cur, fileLoaded: raw.length > 0, isLoading: false, isIngesting: false, errorMessage: null });
+    set({ records: raw, keywords: raw, filteredRecords: raw, filteredKeywords: raw, kpi: finalKPI, summary: finalKPI, currency: cur, fileLoaded: raw.length > 0, isLoading: false, isIngesting: false, errorMessage: null });
   },
   onParseSuccess: (p) => get().handleParseSuccess(p),
   clearDataset: () => set({ fileLoaded: false, records: [], keywords: [], filteredRecords: [], filteredKeywords: [], isLoading: false, isIngesting: false, kpi: { ...EMPTY_KPI }, summary: { ...EMPTY_KPI }, selectedKeyword: null, errorMessage: null, longTailResult: null, dilutionResult: null, ingestedFiles: [], sqlQueryResult: null, sqlQueryError: null, isQueryRunning: false }),
