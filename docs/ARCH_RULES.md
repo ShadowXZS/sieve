@@ -1,121 +1,97 @@
-# Sieve Architecture & Domain Rules (Clean Architecture & Topology)
+# SIEVE Architecture Rules & Dependency Boundary Contracts
 
-## 1. Architectural Philosophy & Foundations
+## 1. Architectural Foundations
 
-Sieve is built under the principles of **Clean Architecture** (Robert C. Martin) and **Working Effectively with Legacy Code** (Michael Feathers). The system enforces:
-- **Strict Inward Dependency Rule**: Source code dependencies point inward toward higher-level policies and core domain entities.
-- **Zero-Dependency Domain Boundaries**: Domain calculations, data transformers, and utilities must never import presentation components, UI frameworks, or concrete I/O drivers.
-- **Air-Gapped & Local-First Execution**: 100% of analytical computation, PII scrubbing, cryptographic attestation, and reporting runs entirely client-side in the browser. Zero telemetry or user data exfiltration.
-- **Strict Type Purity**: Zero use of `any`, unvalidated type assertions, or loose type escapes.
-
----
-
-## 2. Directory Topology & Canonical Domain Map
-
-```
-src/
-├── analytics/         # Infrastructure: DuckDB-Wasm and Apache Arrow IPC bridge
-├── components/        # Presentation: React UI components organized by domain
-│   ├── analytics/     # Canonical: Deep diagnostic analytics & slide-overs (PowerQueryDrawer)
-│   ├── badges/        # Atomic: Domain status badges (CollisionBadge)
-│   ├── brand/         # Atomic: Brand header, logos, and header navigation
-│   ├── dashboard/     # Composite: Top-level executive dashboards and integrated views
-│   ├── dropzone/      # Ingestion: File dropzones, drag-and-drop parsing feedback
-│   ├── export/        # Modals: Exclusion rule export and negative keyword modals
-│   ├── feedback/      # Overlays: Processing spinners and progress indicators
-│   ├── grid/          # Virtualized: High-density keyword data grid and row renderers
-│   ├── hud/           # Telemetry: Worker processing HUD and performance monitors
-│   ├── kpi/           # Canonical: Executive financial KPI widgets & elasticity probes
-│   ├── layout/        # Structural: App shell and grid container wrappers
-│   ├── privacy/       # Security UI: Privacy modals, air-gap badges, and vault UI
-│   ├── reports/       # PDF UI: Report configuration modals and previewers
-│   └── sliders/       # Controls: Live threshold calibration sliders
-├── config/            # Environment: Frozen constants and environment configuration
-├── crypto/            # Security: Client-side PII scrubber, SHA-256 hash, vault, air-gap attestation
-├── formatters/        # Domain: Pure script, syntax, and clipboard formatters
-├── presets/           # Domain: Pre-configured dictionaries and keyword taxonomies
-├── reports/           # Application/Infra: Vector PDF synthesis (OnePager, ForensicDeck)
-├── state/             # Application: Zustand reactive global store (useSieveStore)
-├── storage/           # Infrastructure: Dexie.js (IndexedDB) persistence and repositories
-├── styles/            # Presentation: Design system theme and styling
-├── sync/              # Infrastructure: File System Access API & local vault synchronization
-├── utils/             # Domain Utilities: Math engines, CSV parsing, currency math, logger
-└── workers/           # Infrastructure: Web Worker protocol and thread pool
-```
-
-### Canonical Component Domain Allocations
-
-1. **`src/components/kpi/` (Canonical Home for KPI Widgets)**
-   - `SummaryDashboard.tsx`: 4-column balanced executive financial overview.
-   - `SpendWaterfallBar.tsx`: Proportional 4-tier spend waterfall visual breakdown.
-   - `BidElasticityProbe.tsx`: Optimal Bid Ceiling and converting vs. non-converting median delta probe.
-   - *Duplicate copies formerly in `src/components/dashboard/` are deprecated and eliminated.*
-
-2. **`src/components/analytics/` (Canonical Home for Analytics & Querying)**
-   - `PowerQueryDrawer.tsx`: In-browser DuckDB-Wasm SQL query drawer with Apache Arrow IPC.
-   - `LongTailBleedCard.tsx`: Fragmented long-tail spend audit card.
-   - `DilutionAuditCard.tsx`: Match-type dilution and CPC inflation audit card.
-   - *Duplicate re-exports formerly in `src/components/dashboard/` are deprecated and eliminated.*
-
-3. **`src/components/dashboard/` (Composite Orchestration Views)**
-   - `ExecutiveDashboard.tsx`: Top-level composite executive grid container.
-   - `AnalyticalDrawer.tsx`: Diagnostic drawer unifying long-tail and dilution tabs.
-   - `LongTailDilutionProbe.tsx`: Dual-column diagnostic probe container.
-
-4. **`src/crypto/` (Canonical Home for Cryptography & Privacy)**
-   - `pii_scrubber.ts`: Consolidated client-side PII scrubbing engine (Luhn validation, regex matchers, batch processing, and configurable placeholders).
-   - `attestation.ts`: Cryptographic air-gap proof generator and verifier.
-   - `privacy_monitor.ts`: Zero-leak network interception and session digest generator.
-   - `hash.ts`: Deterministic Web Crypto SHA-256 primitives.
-   - `vault.ts`: AES-GCM-256 backup archive serialization.
-   - *Duplicate module `src/sanitizer/pii_scrubber.ts` has been pruned and consolidated into `src/crypto/pii_scrubber.ts`.*
+SIEVE is engineered under the strict principles of **Clean Architecture** (Robert C. Martin), **Domain-Driven Design** (Eric Evans), and **Designing Data-Intensive Applications** (Martin Kleppmann):
+- **Strict Inward Dependency Rule**: Source code dependencies point inward exclusively toward high-level domain policies.
+- **Zero-Dependency Domain Core**: The domain core (`src/domain/*`) has zero external framework or runtime dependencies.
+- **Air-Gapped & Local-First Execution**: 100% of analytical computation, cryptographic attestation, and reporting runs client-side in-browser. Zero telemetry or data exfiltration.
+- **Strict Type Purity**: Zero use of `any`, untyped maps, or loose type escapes. Discriminated unions and nominal branded types guarantee type soundness.
 
 ---
 
-## 3. Layer Boundaries & Import Direction Rules
-
-The system follows a strict 4-tier Clean Architecture model:
+## 2. Layer Topology & Architectural Hierarchy
 
 ```
-[Presentation Layer]
-  │ (React Components: kpi, analytics, grid, dropzone, layout)
+[Presentation Shell]
+  │ (React Components: kpi, analytics, grid, dropzone, layout; Styles)
   ▼
 [Application Layer]
-  │ (Store: useSieveStore, PDF Synthesis: reports, Worker Pool: workers/pool)
+  │ (Workers: protocol, pool; State: useSieveStore; Reports: PDF synthesis)
   ▼
-[Domain Layer]
-  │ (Utils: executiveAnalytics, currency, csvParser; Formatters; Presets)
+[Adapters & Computation Engines]
+  │ (Analytics: DuckDB-Wasm, Arrow bridge; Storage: Dexie; Crypto: PII scrubber, hash; Utils)
   ▼
-[Infrastructure Layer]
-  (IndexedDB / Dexie: storage, Web Crypto: crypto, WASM Core: sieve_core, DuckDB: analytics)
+[Domain Core (Enterprise Business Rules)]
+  ├── Ports (Contracts): src/domain/ports/* (INgramTokenizerPort, IMatchDilutionPort, etc.)
+  └── Types (Entities/Value Objects): src/domain/types/* (CurrencyMicros, SearchTermRecord, etc.)
 ```
 
-### Non-Negotiable Invariants
+### Exact Layer Boundaries & Import Constraints
 
-1. **Unidirectional Dependency Flow**:
-   - Presentation layer components may import from Application, Domain, and Infrastructure.
-   - Application layer modules (stores, worker pools) may import from Domain and Infrastructure.
-   - Domain layer modules (utilities, formatters, presets) must NEVER import from Presentation or Application.
-   - Pure utilities (`src/utils/*`, `src/formatters/*`) must have ZERO component dependencies.
-
-2. **Contract Immutability**:
-   - Cross-boundary interfaces (e.g., worker protocol payloads, store state slices, domain models) are strictly typed.
-   - No untyped data bags (`Record<string, any>`) or loose `any` escapes are permitted.
-
-3. **Single Canonical Location**:
-   - Every domain entity, utility function, and UI component must have exactly ONE canonical location in `src/`.
-   - Pass-through re-exports across parallel domains (e.g., re-exporting a KPI component from `dashboard/` when it belongs in `kpi/`) are architectural drift and are strictly forbidden.
+1. **Presentation Shell (`src/components/`, `src/styles/`)**:
+   - May import from Application Layer, Adapters, and Domain Types.
+   - Must NEVER be imported by Application, Adapters, or Domain modules.
+2. **Application Layer (`src/workers/`, `src/state/`, `src/reports/`)**:
+   - Manages Web Worker orchestration, IPC serialization, and global reactive state.
+   - May import from Adapters and Domain Core (`types`, `ports`).
+   - Must NEVER import Presentation components or UI templates.
+3. **Adapters & Engines (`src/analytics/`, `src/storage/`, `src/crypto/`, `src/utils/`)**:
+   - Implement inbound/outbound ports (`src/domain/ports/*`).
+   - Bridge DuckDB-Wasm, Apache Arrow IPC, WebAssembly linear memory, and Dexie IndexedDB.
+   - May import Domain Core (`types`, `ports`). Must NEVER import Presentation or Application state.
+4. **Domain Core (`src/domain/types/`, `src/domain/ports/`)**:
+   - Inbound and outbound contracts: `INgramTokenizerPort`, `IMatchDilutionPort`, `IConversionShieldPort`, `IEconometricEnginePort`, `IAnalyticalDatabasePort`.
+   - **Dependency Invariant**: `src/domain/ports/*` depends ONLY on `src/domain/types/*`.
+   - FORBIDDEN in Domain: React, DOM, DuckDB, Apache Arrow concrete classes, or browser I/O drivers.
 
 ---
 
-## 4. Error Handling Taxonomy
+## 3. Permanent Architectural Invariants (Strictly Forbidden)
 
-Errors across Sieve are classified into explicit, typed categories with deterministic presentation:
+### Rule A: Floating-Point Currency Forbidden
+- All monetary amounts (spend, CPC, CPA, revenue, waste) must use integer micro-units (`CurrencyMicros` branded `bigint`).
+- 1,000,000 micros = $1.00. Eliminates IEEE-754 precision drift across financial calculations.
+
+### Rule B: Unmasked Stopwords in Broad Negatives Forbidden
+- Syntactic stopwords (e.g., "the", "and", "in", "for") must be masked before generating broad negative keyword rules.
+- Deploying unmasked stopwords as broad negatives destroys entire campaign traffic pools.
+
+### Rule C: UI-Layer Financial Calculations Forbidden
+- Presentation components must never compute financial KPIs, CVR, CPA drag, elasticity zones, or dilution yields.
+- All calculations must occur within domain engines/ports or background worker threads.
+
+### Rule D: Cross-Boundary Coupling & Thread Serialization Invariants
+- Zero `any` and zero untyped maps (`Record<string, any>`). All interfaces must be strictly typed.
+- Multi-threaded worker communication transferring tabular datasets must enforce zero-copy `ArrayBuffer` / `Uint8Array` transferable semantics (Arrow IPC streams). Raw JavaScript object arrays must never cross worker thread boundaries.
+
+---
+
+## 4. Domain Port Specifications (`src/domain/ports/*`)
+
+| Port Interface | File Location | Core Contract & Responsibilities |
+|---|---|---|
+| `INgramTokenizerPort` | `src/domain/ports/tokenizer_port.ts` | Decomposes search terms into n-grams, classifies semantic intent, applies stopword masks, and computes Wilson score confidence bounds. |
+| `IMatchDilutionPort` | `src/domain/ports/dilution_port.ts` | Compares query match types (Exact vs. Broad/Phrase), detects hijacked clicks, calculates CPC inflation ratios, and estimates lost budget. |
+| `IConversionShieldPort` | `src/domain/ports/shield_port.ts` | Registers safe-list converting terms, evaluates collision risks, enforces Exact Bracket-Lock fallbacks, and emits qualified negative candidates. |
+| `IEconometricEnginePort` | `src/domain/ports/econometric_port.ts` | Computes break-even bid ceilings (CVR x Target CPA), maps elasticity spectrums, and calculates convex reallocation yields damped by gamma (0.70 - 0.85). |
+| `IAnalyticalDatabasePort` | `src/domain/ports/database_port.ts` | Abstract contract for in-browser SQL querying, virtual table registration (`search_terms`, `token_matrix`, `safe_list`), and parameterized diagnostic presets. |
+
+---
+
+## 5. Worker IPC Protocol (`src/workers/protocol.ts`)
+
+- **Discriminated Unions**: All commands (`WorkerCommand`) and responses (`WorkerResponse`) are tagged unions with discriminant properties `type`.
+- **Zero-Copy Transfer Lists**: ArrayBuffers backing CSV chunks, WASM linear memory, and Apache Arrow IPC record batches are passed via `postMessage(message, [buffer])` transfer lists, eliminating structured clone latency.
+
+---
+
+## 6. Error Handling Taxonomy
 
 | Error Category | Domain / Source | Typical Cause | Handling & Fallback Strategy |
 |---|---|---|---|
-| `SchemaValidationError` | `src/utils/csvParser.ts` | Missing required headers or corrupted CSV preamble | Notify via store alert state; present non-destructive upload error banner in UI |
-| `WasmEnginePanic` | `src/workers/sieve.worker.ts` | Invalid byte buffer or WASM linear memory allocation failure | Worker error boundary catches exception; resets worker instance without crashing main thread |
-| `DuckDBExecutionError` | `src/components/analytics/PowerQueryDrawer.tsx` | SQL syntax error, catalog binder error, or invalid column reference | Parse via `formatDuckDBError`; display titled alert banner inside drawer with syntax highlight |
-| `PersistenceError` | `src/storage/` | IndexedDB quota exceeded or storage blocked | Log warning; degrade gracefully to in-memory non-persisted session state |
-| `AttestationFailure` | `src/crypto/attestation.ts` | SHA-256 hash mismatch or tampered audit report | Invalidate attestation badge; flag verification failure in privacy modal |
+| `SchemaValidationError` | `src/utils/csvParser.ts` | Missing headers or corrupted CSV | Present non-destructive upload error banner in UI |
+| `WorkerExecutionError` | `src/workers/protocol.ts` | Thread panic or memory allocation failure | Reset worker slot without crashing main thread |
+| `DuckDBExecutionError` | `src/analytics/` | SQL syntax error or invalid column reference | Parse error and display styled alert in diagnostic drawer |
+| `PersistenceError` | `src/storage/` | IndexedDB quota exceeded | Degrade gracefully to in-memory session state |
+| `AttestationFailure` | `src/crypto/attestation.ts` | SHA-256 hash mismatch or tampered audit report | Invalidate attestation badge; flag verification failure |
