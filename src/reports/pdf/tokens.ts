@@ -79,9 +79,9 @@ export const PDF_TYPOGRAPHY = {
     tableBody: 8.5,
     tableHeader: 8,
     cardSub: 7.5,
-    cardLabel: 7.5,
+    cardLabel: 7,
     caption: 7,
-    badge: 6.5,
+    badge: 5.5,
     footer: 6.5,
   },
 } as const;

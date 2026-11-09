@@ -224,7 +224,7 @@ export const ExecutiveReportPdf: React.FC<ExecutiveReportPdfProps> = ({
               Annual: {annualizedRecoveryFormatted}
             </Text>
             <Text style={styles.kpiCaption}>
-              +{roasLiftPercent}% ROAS Lift ({Math.round(efficiencyMultiplier * 100) / 100}x)
+              +{Number(roasLiftPercent || 0).toFixed(1)}% ROAS Lift ({Math.round(efficiencyMultiplier * 100) / 100}x)
             </Text>
           </View>
         </View>

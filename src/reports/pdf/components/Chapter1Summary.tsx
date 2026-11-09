@@ -157,7 +157,9 @@ export const Chapter1Summary: React.FC<Chapter1Props> = ({
       incrementalConversions,
       annualizedRecovery,
       formattedAnnualizedRecovery: formatCurrency(annualizedRecovery, activeCurrency),
-      roasLiftPercent: metrics?.roasLiftPercent ?? reallocation.roasLiftPercent,
+      roasLiftPercent: metrics?.roasLiftPercent != null
+        ? Math.round(metrics.roasLiftPercent * 10) / 10
+        : Math.round((reallocation.roasLiftPercent || 0) * 10) / 10,
     },
     spendWaterfall: {
       ...analytics.spendWaterfall,

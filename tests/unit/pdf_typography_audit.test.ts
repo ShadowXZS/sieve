@@ -315,6 +315,47 @@ describe('PDF Typography & Responsive Container Layout Specification', () => {
       );
     });
     assert.ok(badgeContainers.length >= 3, 'Status badges must be isolated in styled badge pill containers');
+
+    // 2D: ROAS Lift formatted to 0 or 1 decimal place without floating-point noise
+    const roasLiftNode = nodes.find((n) => {
+      if (!isLeafTextNode(n)) return false;
+      const text = getNodeText(n).trim();
+      return text.includes('ROAS Lift');
+    });
+    assert.ok(roasLiftNode, 'Must contain ROAS Lift caption leaf text node');
+    const roasLiftText = getNodeText(roasLiftNode).trim();
+    assert.ok(
+      !/\.[0-9]{3,}%/.test(roasLiftText),
+      `ROAS Lift text "${roasLiftText}" must not contain unrounded floating point decimals`
+    );
+    assert.ok(
+      /\+[0-9]+(\.[0-9])?% ROAS Lift/.test(roasLiftText),
+      `ROAS Lift text "${roasLiftText}" must match formatted pattern "+XX.X% ROAS Lift"`
+    );
+
+    // 2E: ForensicDeck Chapter 1 Summary also renders formatted ROAS lift without floating-point noise
+    const deckTree = ForensicDeck({
+      kpi: BASE_MOCK_KPI,
+      reallocation: realloc,
+      keywords: BASE_MOCK_KEYWORDS,
+      analytics,
+    });
+    const deckNodes = flattenTree(deckTree);
+    const deckRoasLiftNode = deckNodes.find((n) => {
+      if (!isLeafTextNode(n)) return false;
+      const text = getNodeText(n).trim();
+      return text.includes('ROAS Lift');
+    });
+    assert.ok(deckRoasLiftNode, 'ForensicDeck must contain ROAS Lift caption leaf text node');
+    const deckRoasLiftText = getNodeText(deckRoasLiftNode).trim();
+    assert.ok(
+      !/\.[0-9]{3,}%/.test(deckRoasLiftText),
+      `ForensicDeck ROAS Lift text "${deckRoasLiftText}" must not contain unrounded floating point decimals`
+    );
+    assert.ok(
+      /\+[0-9]+(\.[0-9])?% ROAS Lift/.test(deckRoasLiftText),
+      `ForensicDeck ROAS Lift text "${deckRoasLiftText}" must match formatted pattern "+XX.X% ROAS Lift"`
+    );
   });
 
   // -------------------------------------------------------------------------

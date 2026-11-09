@@ -53,7 +53,7 @@ export const MetricCardsGrid: React.FC<MetricCardsGridProps> = ({
             </Text>
           </View>
           <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.wasteBleed.badgeBg }]}>
-            <Text style={{ color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }}>
+            <Text style={[styles.pillBadgeText, { color: EXECUTIVE_COLOR_TOKENS.wasteBleed.text }]}>
               {wastePercentage.toFixed(1)}%
             </Text>
           </View>
@@ -93,7 +93,7 @@ export const MetricCardsGrid: React.FC<MetricCardsGridProps> = ({
             </Text>
           </View>
           <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.safeList.badgeBg }]}>
-            <Text style={{ color: EXECUTIVE_COLOR_TOKENS.safeList.dark }}>Secured</Text>
+            <Text style={[styles.pillBadgeText, { color: EXECUTIVE_COLOR_TOKENS.safeList.dark }]}>Secured</Text>
           </View>
         </View>
         <Text
@@ -131,7 +131,7 @@ export const MetricCardsGrid: React.FC<MetricCardsGridProps> = ({
             </Text>
           </View>
           <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.highRisk.badgeBg }]}>
-            <Text style={{ color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }}>Elasticity</Text>
+            <Text style={[styles.pillBadgeText, { color: EXECUTIVE_COLOR_TOKENS.highRisk.dark }]}>Elasticity</Text>
           </View>
         </View>
         <Text
@@ -169,7 +169,7 @@ export const MetricCardsGrid: React.FC<MetricCardsGridProps> = ({
             </Text>
           </View>
           <View style={[styles.pillBadge, { backgroundColor: EXECUTIVE_COLOR_TOKENS.reallocation.badgeBg }]}>
-            <Text style={{ color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }}>Efficiency</Text>
+            <Text style={[styles.pillBadgeText, { color: EXECUTIVE_COLOR_TOKENS.reallocation.dark }]}>Efficiency</Text>
           </View>
         </View>
         <Text
@@ -185,7 +185,7 @@ export const MetricCardsGrid: React.FC<MetricCardsGridProps> = ({
           Annual: {analytics.reallocationYield.formattedAnnualizedRecovery}
         </Text>
         <Text style={styles.cardCaption}>
-          +{analytics.reallocationYield.roasLiftPercent}% ROAS Lift ({Math.round(reallocation.efficiencyMultiplier * 100) / 100}x)
+          +{Number(analytics.reallocationYield.roasLiftPercent || 0).toFixed(1)}% ROAS Lift ({Math.round(reallocation.efficiencyMultiplier * 100) / 100}x)
         </Text>
       </View>
     </View>
