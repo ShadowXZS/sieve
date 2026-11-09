@@ -27,8 +27,17 @@ export const ArchivalNoticeBanner: React.FC<ArchivalNoticeBannerProps> = ({
           <AlertTriangle className="w-5 h-5" aria-hidden="true" />
         </div>
         <div className="flex-1 space-y-1.5 min-w-0">
+          <h3 className="text-xs sm:text-sm font-semibold text-amber-300">
+            Development Transparency & Local-Compute Notice
+          </h3>
           <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
-            This is a project created through AI, please use the data as a reference and not make financial decisions based on it.
+            This application's core codebase and local analytics pipelines were synthesized using advanced Meta-Prompting engineering workflows. The application itself runs completely deterministically inside your browser.
+          </p>
+          <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
+            Please use the data as a reference and not make financial decisions based on it.
+          </p>
+          <p className="text-xs sm:text-sm font-medium leading-relaxed text-amber-200">
+            Zero-Cloud Privacy Guarantee: Because the resulting engine is entirely local-first, no AI models process your data at runtime. Your raw marketing files, cost metrics, and search queries stay strictly inside your browser's WebAssembly memory. There is zero data egress, zero external telemetry, and zero cloud tracking.
           </p>
         </div>
       </div>
