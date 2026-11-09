@@ -101,4 +101,4 @@ Sieve was built with zero data-egress principles:
 
 This software is provided **"as is"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the author be liable for any ad spend loss, account disruption, or commercial damages arising from the use of this code or its generated outputs.
 
-If you are an engineer looking into Rust-WASM streaming, DuckDB-WASM integration, or in-browser vector rendering, feel free to inspect the repository before it is archived.
+If you are an engineer looking into Rust-WASM streaming, DuckDB-WASM integration, or in-browser vector rendering, feel free to inspect the repository.
