@@ -17,19 +17,36 @@ import { SieveLogo } from '../brand/SieveLogo.tsx';
 import { scrubKeywordList } from '../../crypto/pii_scrubber.ts';
 import { X, Copy, Check, Download, FileCode, FileSpreadsheet, FileText, Filter, ShieldCheck, AlertTriangle } from 'lucide-react';
 
-export type ExportFormat = 'google_editor' | 'amazon_csv' | 'google_script' | 'plain_text';
+export type ExportFormat = 'google_editor' | 'amazon_csv' | 'google_script' | 'plain_text' | 'plain';
 
 export interface ExportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean; onClose: () => void;
   keywords?: PersistedNegativeKeyword[];
+  rules?: PersistedNegativeKeyword[] | Record<string, unknown>[];
+  stagedRules?: PersistedNegativeKeyword[] | Record<string, unknown>[];
+  activeTab?: ExportFormat | 'plain';
+  defaultFormat?: ExportFormat | 'plain';
   children?: React.ReactNode;
   [key: string]: unknown;
 }
 export type ExportDefModalProps = ExportModalProps;
 
-export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywords = [], children }) => {
-  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('google_editor');
+const FORMAT_TABS = [
+  { id: 'google_editor', label: 'Google Ads Editor', sub: 'TSV Direct Paste', icon: FileSpreadsheet },
+  { id: 'amazon_csv', label: 'Amazon PPC', sub: 'Bulk Upload CSV', icon: FileSpreadsheet },
+  { id: 'google_script', label: 'Google Script', sub: 'Automation JS', icon: FileCode },
+  { id: 'plain_text', label: 'Plain Text', sub: 'Formatted Rules', icon: FileText },
+] as const;
+
+export const ExportModal: React.FC<ExportModalProps> = ({
+  isOpen, onClose, keywords = [], rules, stagedRules: stagedRulesProp, activeTab, defaultFormat, children,
+}) => {
+  const initialFormat = useMemo<ExportFormat>(() => {
+    const tab = (activeTab ?? defaultFormat) as string;
+    return (tab === 'plain' || tab === 'plain_text') ? 'plain_text' : (tab === 'amazon_csv' || tab === 'google_script') ? tab : 'google_editor';
+  }, [activeTab, defaultFormat]);
+
+  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>(initialFormat);
   const [activePresets, setActivePresets] = useState<string[]>([]);
   const [isPiiScrubbed, setIsPiiScrubbed] = useState(true);
   const [isCopied, setIsCopied] = useState(false);
@@ -43,28 +60,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
     }
   }, [isOpen, handleKeyDown]);
 
+  const stagedRules = useMemo(() => {
+    const raw = (stagedRulesProp ?? rules ?? keywords ?? []) as Array<Record<string, unknown>>;
+    return raw.map((r) => {
+      const rawTerm = String(r.query ?? r.keyword ?? r.searchTerm ?? r.text ?? r.candidateTerm ?? r.term ?? '').trim();
+      const rawMatch = String(r.matchType ?? r.recommendedMatchType ?? '').toUpperCase();
+      const matchType = rawMatch === 'EXACT' ? 'exact' : rawMatch === 'PHRASE' ? 'phrase' : (r.matchType || 'broad');
+      return { ...r, keyword: String(r.keyword || rawTerm), query: String(r.query || rawTerm), searchTerm: String(r.searchTerm || rawTerm), matchType } as unknown as PersistedNegativeKeyword;
+    });
+  }, [stagedRulesProp, rules, keywords]);
+
   const eligibleKeywords = useMemo(() =>
-    activePresets.length === 0 ? keywords : filterKeywordsByPresets(keywords, activePresets),
-    [keywords, activePresets]
+    activePresets.length === 0 ? stagedRules : filterKeywordsByPresets(stagedRules, activePresets),
+    [stagedRules, activePresets]
   );
 
   const normalizedKeywords = useMemo(() => eligibleKeywords.map((k) => {
     const r = k as unknown as Record<string, unknown>;
-    const term = (r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? '') as string;
-    return { ...k, keyword: k.keyword || term, ...(r.query ? { query: term } : {}) } as unknown as PersistedNegativeKeyword;
+    const rawTerm = (r.query ?? r.keyword ?? r.searchTerm ?? r.text ?? r.candidateTerm ?? r.term ?? '') as string;
+    return { ...k, keyword: k.keyword || rawTerm, ...(r.query ? { query: rawTerm } : {}), ...(r.searchTerm ? { searchTerm: rawTerm } : {}) } as unknown as PersistedNegativeKeyword;
   }), [eligibleKeywords]);
 
   const { scrubbedKeywords, piiStats } = useMemo(() => {
     if (!isPiiScrubbed) return { scrubbedKeywords: normalizedKeywords, piiStats: null };
     const { scrubbed, stats } = scrubKeywordList(normalizedKeywords);
-    const synchronized = scrubbed.map((item) => {
-      const r = item as unknown as Record<string, unknown>;
-      return (r.query ? { ...item, query: item.keyword } : item) as PersistedNegativeKeyword;
-    });
+    const synchronized = scrubbed.map((item) => ({ ...item, query: item.keyword, searchTerm: item.keyword } as unknown as PersistedNegativeKeyword));
     return { scrubbedKeywords: synchronized, piiStats: stats };
   }, [normalizedKeywords, isPiiScrubbed]);
 
   const validation = useMemo(() => validatePlatformConstraints(scrubbedKeywords), [scrubbedKeywords]);
+  const plainTextPayload = useMemo(() => generatePlainTextRules(scrubbedKeywords), [scrubbedKeywords]);
 
   const exportPayload = useMemo(() => {
     switch (selectedFormat) {
@@ -72,22 +97,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
       case 'amazon_csv': return generateAmazonBulkCsv(scrubbedKeywords);
       case 'google_script': return generateGoogleAdsScript(scrubbedKeywords);
       case 'plain_text':
-      default: return generatePlainTextRules(scrubbedKeywords);
+      case 'plain':
+      default: return plainTextPayload;
     }
-  }, [selectedFormat, scrubbedKeywords]);
+  }, [selectedFormat, scrubbedKeywords, plainTextPayload]);
 
-  const payloadLineCount = useMemo(() => exportPayload ? exportPayload.split('\n').length : 0, [exportPayload]);
+  const payloadLineCount = useMemo(() => (exportPayload ? exportPayload.split('\n').filter(Boolean).length : 0), [exportPayload]);
 
-  const previewText = useMemo(() => {
-    const totalCount = Math.max(eligibleKeywords.length, payloadLineCount);
-    if (totalCount > 10000) {
-      const lines = exportPayload ? exportPayload.split('\n') : [];
-      return `${lines.slice(0, 500).join('\n')}\n\nShowing preview of first 500 of ${totalCount.toLocaleString()} rules... Full dataset included in Copy/Download`;
+  const previewContent = useMemo(() => {
+    const lines = exportPayload ? exportPayload.split('\n') : [];
+    const rules = stagedRules.length >= lines.length ? stagedRules : lines;
+    if (lines.length > 500) {
+      return `${lines.slice(0, 500).join('\n')}\n... [Showing preview of first 500 of ${rules.length} rules. Full dataset included in Copy and Download]`;
     }
-    return exportPayload.length > 15000
-      ? `${exportPayload.slice(0, 15000)}\n\n... (preview truncated to first 15,000 characters)`
-      : exportPayload;
-  }, [exportPayload, eligibleKeywords.length, payloadLineCount]);
+    return exportPayload;
+  }, [exportPayload, stagedRules]);
 
   const handleCopy = async () => {
     if (await copyToClipboard(exportPayload)) {
@@ -98,7 +122,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
   };
 
   const handleDownload = () => {
-    const formatMap: Record<ExportFormat, { blob: () => Blob; name: string }> = {
+    const formatMap: Record<string, { blob: () => Blob; name: string }> = {
       google_editor: { blob: () => createGoogleAdsBlob(exportPayload), name: 'sieve-google-ads-editor.tsv' },
       amazon_csv: { blob: () => createAmazonBulkBlob(exportPayload), name: 'sieve-amazon-ppc-negatives.csv' },
       google_script: { blob: () => new Blob([exportPayload], { type: 'application/javascript;charset=utf-8' }), name: 'sieve-google-ads-script.js' },
@@ -136,40 +160,27 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
               <div className="px-6 py-2 bg-amber-950/50 border-b border-amber-800/60 flex flex-wrap items-center gap-3 text-xs text-amber-200 shrink-0">
                 <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="font-semibold">Platform Constraint Warnings:</span>
-                {validation.hasLengthExceeded && (
-                  <span className="px-2 py-0.5 rounded bg-red-900/80 text-red-200 border border-red-700/60 font-mono text-[11px]" data-testid="constraint-badge-length">LENGTH_EXCEEDED: &gt;80 characters</span>
-                )}
-                {validation.hasCapacityExceeded && (
-                  <span className="px-2 py-0.5 rounded bg-amber-900/80 text-amber-200 border border-amber-700/60 font-mono text-[11px]" data-testid="constraint-badge-capacity">LIST_CAPACITY_EXCEEDED: Exceeds platform ceiling</span>
-                )}
+                {validation.hasLengthExceeded && <span className="px-2 py-0.5 rounded bg-red-900/80 text-red-200 border border-red-700/60 font-mono text-[11px]" data-testid="constraint-badge-length">LENGTH_EXCEEDED: &gt;80 characters</span>}
+                {validation.hasCapacityExceeded && <span className="px-2 py-0.5 rounded bg-amber-900/80 text-amber-200 border border-amber-700/60 font-mono text-[11px]" data-testid="constraint-badge-capacity">LIST_CAPACITY_EXCEEDED: Exceeds platform ceiling</span>}
               </div>
             )}
 
             {/* Format Selector */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-4 bg-zinc-950/30 border-b border-zinc-800/80 shrink-0">
-              {[
-                { id: 'google_editor', label: 'Google Ads Editor', sub: 'TSV Direct Paste', icon: FileSpreadsheet },
-                { id: 'amazon_csv', label: 'Amazon PPC', sub: 'Bulk Upload CSV', icon: FileSpreadsheet },
-                { id: 'google_script', label: 'Google Script', sub: 'Automation JS', icon: FileCode },
-                { id: 'plain_text', label: 'Plain Text', sub: 'Formatted Rules', icon: FileText },
-              ].map((fmt) => (
-                <button
-                  key={fmt.id}
-                  type="button"
-                  onClick={() => setSelectedFormat(fmt.id as ExportFormat)}
-                  className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-all active:scale-[0.98] ${
-                    selectedFormat === fmt.id
-                      ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
-                      : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                  }`}
-                >
-                  <fmt.icon className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <div className="text-left">
-                    <div className="font-semibold">{fmt.label}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono">{fmt.sub}</div>
-                  </div>
-                </button>
-              ))}
+              {FORMAT_TABS.map((fmt) => {
+                const isActive = selectedFormat === fmt.id || (fmt.id === 'plain_text' && (selectedFormat as string) === 'plain');
+                return (
+                  <button
+                    key={fmt.id} type="button" onClick={() => setSelectedFormat(fmt.id as ExportFormat)}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium border transition-all active:scale-[0.98] ${
+                      isActive ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300' : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    <fmt.icon className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-left"><div className="font-semibold">{fmt.label}</div><div className="text-[10px] text-zinc-500 font-mono">{fmt.sub}</div></div>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Filter Presets and PII Bar */}
@@ -180,29 +191,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
                 <div className="flex flex-wrap gap-1.5">
                   {Object.values(INTENT_PRESETS).map((p) => (
                     <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setActivePresets((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
-                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-all ${
-                        activePresets.includes(p.id) ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50'
-                      }`}
+                      key={p.id} type="button" onClick={() => setActivePresets((prev) => prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id])}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-all ${activePresets.includes(p.id) ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50'}`}
                     >
                       {p.name.split(' ')[0]}
                     </button>
                   ))}
-                  {activePresets.length > 0 && (
-                    <button type="button" onClick={() => setActivePresets([])} className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono ml-1">Clear</button>
-                  )}
+                  {activePresets.length > 0 && <button type="button" onClick={() => setActivePresets([])} className="text-[11px] text-zinc-500 hover:text-zinc-300 underline font-mono ml-1">Clear</button>}
                 </div>
               </div>
 
               <button
-                type="button"
-                data-testid="export-pii-toggle"
-                onClick={() => setIsPiiScrubbed((v) => !v)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border transition-all ${
-                  isPiiScrubbed ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50'
-                }`}
+                type="button" data-testid="export-pii-toggle" onClick={() => setIsPiiScrubbed((v) => !v)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border transition-all ${isPiiScrubbed ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60' : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50'}`}
                 title="Toggle client-side redaction of sensitive tokens"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -219,8 +220,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, keywo
                 <span>Payload Preview</span>
                 <span className="font-mono tabular-nums text-[11px]">{exportPayload.length.toLocaleString()} characters • {payloadLineCount.toLocaleString()} lines</span>
               </div>
-              <div className="flex-1 overflow-auto bg-zinc-950 border border-zinc-800 rounded-lg p-3 font-mono text-[11px] text-zinc-300 whitespace-pre">
-                {previewText}
+              <div className="flex-1 overflow-auto font-mono text-xs text-slate-300 bg-slate-950 p-4 border border-slate-800 rounded-lg whitespace-pre">
+                {previewContent}
               </div>
             </div>
 

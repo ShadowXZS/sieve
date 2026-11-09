@@ -9,6 +9,7 @@ export type AmazonFallbackMatch = 'Negative Phrase' | 'Negative Exact';
 export interface CandidateKeywordLike {
   readonly keyword?: string;
   readonly query?: string;
+  readonly searchTerm?: string;
   readonly term?: string;
   readonly text?: string;
   readonly candidateTerm?: string;
@@ -63,7 +64,7 @@ const escapeCsv = (v: string): string => {
 function extractRuleDetails(rule: CandidateRuleInput) {
   const r = rule as Record<string, unknown>;
   const rawTerm = String(
-    r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? ''
+    r.query ?? r.keyword ?? r.searchTerm ?? r.term ?? r.text ?? r.candidateTerm ?? ''
   );
   const cleanTerm = stripTerm(rawTerm);
   const isExactLocked =
@@ -97,30 +98,30 @@ export function generatePlainTextRules(
   const lines: string[] = [];
   for (const rule of rules) {
     const r = rule as Record<string, unknown>;
-    const raw = r.query ?? r.keyword ?? r.term ?? r.text ?? r.candidateTerm ?? '';
-    const rawStr = String(raw).trim();
-    const text = stripTerm(rawStr);
-    if (text.trim().length === 0) continue;
+    const rawVal = r.query ?? r.keyword ?? r.searchTerm ?? r.text ?? r.candidateTerm ?? r.term ?? '';
+    const rawStr = String(rawVal).trim();
+    const rawTerm = stripTerm(rawStr);
+    if (rawTerm.length === 0) continue;
 
-    const rawMatch = r.recommendedMatchType ?? r.matchType;
-    const isExactLocked =
-      r.verdict === 'EXACT_BRACKET_LOCK' || Boolean(r.hasCollision);
-    let matchUpper = String(rawMatch || '').toUpperCase();
-    if (!matchUpper) {
-      if (rawStr.startsWith('[') && rawStr.endsWith(']')) matchUpper = 'EXACT';
-      else if (rawStr.startsWith('"') && rawStr.endsWith('"')) matchUpper = 'PHRASE';
-      else matchUpper = isExactLocked ? 'EXACT' : 'BROAD';
+    const rawMatch = String(r.matchType ?? r.recommendedMatchType ?? '').toUpperCase();
+    const isExactLocked = r.verdict === 'EXACT_BRACKET_LOCK' || Boolean(r.hasCollision);
+    let matchType = rawMatch;
+    if (!matchType) {
+      if (rawStr.startsWith('[') && rawStr.endsWith(']')) matchType = 'EXACT';
+      else if (rawStr.startsWith('"') && rawStr.endsWith('"')) matchType = 'PHRASE';
+      else matchType = isExactLocked ? 'EXACT' : 'BROAD';
+    } else if (isExactLocked) {
+      matchType = 'EXACT';
     }
 
-    if (isExactLocked || matchUpper === 'EXACT') {
-      lines.push(`[${text}]`);
-    } else if (matchUpper === 'PHRASE') {
-      lines.push(`"${text}"`);
-    } else {
-      lines.push(text);
-    }
+    const formatted =
+      matchType === 'EXACT' ? `[${rawTerm}]` :
+      matchType === 'PHRASE' ? `"${rawTerm}"` :
+      rawTerm;
+
+    lines.push(formatted);
   }
-  return lines.filter((l) => l.trim().length > 0).join('\n');
+  return lines.filter((line) => line.trim().length > 0).join('\n');
 }
 
 /** Generates Google Ads Editor TSV: Campaign \t Ad Group \t Keyword \t Criterion Type */
