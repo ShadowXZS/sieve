@@ -244,6 +244,41 @@ It cannot "self-improve." It is trapped in a loop of recursive error amplificati
 
 Selling the world on imminent ASI while failing to maintain boolean parity in a basic keyword calculator isn't engineering—it is pure narrative dissonance designed to keep venture checks clearing.
 
+### The Parity Paradox: Why I Cannot Vouch for the Output
+
+On paper, I have a deployed, functioning application. You can load it in a browser, drag and drop a Google Ads CSV, and watch the dashboard light up with metrics.
+
+Yet, as the creator, **I cannot vouch for the mathematical accuracy of a single calculation it produces.**
+
+To build Sieve, I implemented the exact multi-agent pipeline celebrated by modern "agentic engineering" tutorials. I set up two specialized AI personas:  
+* **The Domain Specialist (Ad Tech Expert & PPC Specialist):** Defined the keyword logic, ad-spend leakage formulas, and evaluation criteria.  
+* **The Systems Architect (Meta-Prompter):** Translated those marketing requirements into system prompts, component interfaces, and executable code.
+
+Here is the exact cycle that broke the project:
+
+1. **The Initial Build (v1):** The Ad Specialist formulated the rules, the Systems Architect synthesized the meta-prompts, and the model generated the core client-side engine.  
+2. **The First Audit:** Once v1 was live, I took the actual calculation outputs—the flagged search terms, suggested negative match types, and wasted ad spend totals—and fed them back to the Ad Specialist persona to verify their accuracy.  
+3. **The Verdict:** The Specialist condemned its own architectural progeny. It generated an audit report detailing how the keyword classifications were flawed, the matching thresholds were misapplied, and the math was unreliable.  
+4. **The "Fix" Loop (v2):** I fed that scathing audit report straight into the Systems Architect to generate targeted meta-prompts and patch the engine. The AI confidently refactored thousands of lines of code, patched the edge cases, and produced Version 2.  
+5. **The Second Audit:** I extracted the fresh outputs from Version 2 and fed them right back to the Ad Specialist to confirm the fix. The result? **It found the report to be inaccurate once again.**
+
+That was the moment the entire illusion shattered.
+
+When you build deterministic software through an agentic feedback loop, **errors do not converge toward zero—they mutate.**
+
+Fixing keyword classification silently breaks currency parsing; fixing currency parsing breaks the Web Worker batch pipeline; fixing the pipeline re-introduces the classification bug. You are not climbing an engineering ladder toward a production product. You are rolling a 20-sided die on every iteration: you only move forward if you roll a 20, and the second you take a step, you have to roll the die all over again.
+
+When software is built entirely out of probabilistic text prompts:  
+* **The machine is fundamentally uncertain of its own calculations.**  
+* **Generation and auditing become two mirrors facing each other**—an infinite loop of synthetic validation that looks authoritative in a prompt window, but falls apart the second it touches real numbers.  
+* **Because I did not write the deterministic logic line by line,** I cannot guarantee whether an ad-spend calculation is off by two percent, twenty percent, or completely fabricated.
+
+I refuse to ship a financial and ad-spend audit tool where the core calculations are essentially a coin toss. If an engine cannot guarantee mathematical parity to the exact cent, it is not a tool—it is a hazard.
+
+---
+
+This is the exact reason I decided to drop the idea of monetizing this and keep it as an enduring reminder of the true limitations of AI.
+
 ---
 
 ## The Verdict
