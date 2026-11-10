@@ -91,7 +91,7 @@ You are no longer building; you are managing a junior developer who writes at 10
 If you can specify a problem with 100% precision and zero ambiguity, **you have already written the code.** Trying to force natural language to act as an intermediary doesn't save time—it just robs you of the focus required to actually build.
 
 
-# The AI Pyramid Scheme, the "Vibe Coding" Lie, and Why English Is Not a Programming Language
+# The AI The Circular Financing Loop, the "Vibe Coding" Lie, and Why English Is Not a Programming Language
 
 > **Repository Status:** Permanently Preserved  
 > **Purpose:** An architectural post-mortem and an enduring reminder never to buy the hype-train tickets that Big Tech executives and Silicon Valley influencers sell to young developers.
@@ -111,7 +111,7 @@ Anyone who has tried building a real, mathematically deterministic application k
 Humanity invented formal programming languages (C, Rust, SQL, Python) specifically because natural human speech fails at precision:  
 * When you write `x = y + 1`, the computer executes the exact same operation every single time. It does not care about your tone, your phrasing, or what day it is.  
 * When you and your friend describe the exact same problem to an AI in English, your vocabulary, adjectives, and sentence structure will differ.  
-* Because the text changes, the context changes. Because the context changes, the AI’s attention weights shift, and the output completely diverges.
+* Because the phrasing changes, the input tokens change. Because the tokens change, the attention distribution shifts across the context, and the output trajectory completely diverges.
 
 A tool that produces a completely different technical implementation depending on the casual phrasing of an English prompt is not a programming language—it is a **probabilistic lottery**.
 
@@ -152,11 +152,11 @@ Top CS departments no longer operate purely as centers of detached intellectual 
 
 ---
 
-## 3. The VC Funding Cycle: A Silicon Valley Pyramid Scheme
+## 3. The VC Funding Cycle: A Silicon Valley The Circular Financing Loop
 
 The real reason high-profile executives make these claims on stage has nothing to do with helping developers. **When leadership speaks, they are not talking to the audience—they are managing investor sentiment.**
 
-The entire AI boom is structured like an economic pyramid scheme designed to drain venture capital funds through a circular money loop:
+The entire AI boom is structured like an economic The Circular Financing Loop designed to drain venture capital funds through a circular money loop:
 
 ```  
 Venture Capitalists & Sovereign Wealth Funds  
@@ -240,6 +240,8 @@ Yet, as the creator, **I cannot vouch for the mathematical accuracy of a single 
 To build Sieve, I implemented the exact multi-agent pipeline celebrated by modern "agentic engineering" tutorials. I set up two specialized AI personas:  
 * **The Domain Specialist (Ad Tech Expert & PPC Specialist):** Defined the keyword logic, ad-spend leakage formulas, and evaluation criteria.  
 * **The Systems Architect (Meta-Prompter):** Translated those marketing requirements into system prompts, component interfaces, and executable code.
+
+This experiment ran directly into what empirical machine learning research (e.g., Huang et al., Google DeepMind) has rigorously documented: LLMs cannot intrinsically self-correct reasoning without an external deterministic oracle. When an LLM audits its own output in a closed loop, accuracy degrades rather than improves. The model simply mutates working logic into broken logic to satisfy the conversational expectation of an audit.
 
 Here is the exact cycle that broke the project:
 
