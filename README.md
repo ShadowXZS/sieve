@@ -91,7 +91,7 @@ You are no longer building; you are managing a junior developer who writes at 10
 If you can specify a problem with 100% precision and zero ambiguity, **you have already written the code.** Trying to force natural language to act as an intermediary doesn't save time—it just robs you of the focus required to actually build.
 
 
-# The AI The Circular Financing Loop, the "Vibe Coding" Lie, and Why English Is Not a Programming Language
+# The AI Circular Financing Loop, the "Vibe Coding" Lie, and Why English Is Not a Programming Language
 
 > **Repository Status:** Permanently Preserved  
 > **Purpose:** An architectural post-mortem and an enduring reminder never to buy the hype-train tickets that Big Tech executives and Silicon Valley influencers sell to young developers.
@@ -156,7 +156,7 @@ Top CS departments no longer operate purely as centers of detached intellectual 
 
 The real reason high-profile executives make these claims on stage has nothing to do with helping developers. **When leadership speaks, they are not talking to the audience—they are managing investor sentiment.**
 
-The entire AI boom is structured like an economic The Circular Financing Loop designed to drain venture capital funds through a circular money loop:
+The entire AI boom is structured like an economic Circular Financing Loop designed to drain venture capital funds through a circular money loop:
 
 ```  
 Venture Capitalists & Sovereign Wealth Funds  
