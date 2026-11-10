@@ -204,23 +204,6 @@ The tech giants are trapped in a race to the bottom: they are burning through bi
 
 ---
 
-## 5. The Cognitive Tax: Why Explaining to a Machine Kills the Builder
-
-The greatest hidden failure of "vibe coding" is cognitive fatigue.
-
-When you engineer software directly, your brain operates in a tight, focused loop:  
-`Idea → Data Structure → Code → Immediate Verification`.
-
-When you outsource implementation to an AI, that loop breaks down into pure friction:  
-`Idea → Ambiguous English → Token Generation → Code Forensics → Re-Prompting → Debugging Synthetic Output`.
-
-You are no longer building; you are managing a junior developer who writes at 10,000 words per minute but forgets the architecture every three sentences.
-
-1. **The Loss of the Mental Model:** When you write code yourself, you naturally hold the architecture, invariants, and edge cases in your working memory. When an LLM generates thousands of lines across multiple files, you have no internal mental map. You are left conducting forensic analysis on foreign code you supposedly "authored."  
-2. **The Illusion of Speed:** Typing syntax was never the bottleneck. The real work is clear thinking. Spending twenty minutes carefully crafting an English prompt, reviewing a massive diff, and arguing with a model over edge cases takes vastly more energy than simply writing the 30 lines of deterministic code yourself.
-
-If you can specify a problem with 100% precision and zero ambiguity, **you have already written the code.** Trying to force natural language to act as an intermediary doesn't save time—it just robs you of the focus required to actually build.
-
 ### The ASI Delusion vs. The PPC Calculator: The Comedy of "Recursive Self-Improvement"
 
 The AI industry’s favorite campfire story is **Recursive Self-Improvement (RSI)**—the thesis that an AI will soon analyze, optimize, and rewrite its own architecture, triggering an exponential "intelligence explosion" straight into **Artificial Superintelligence (ASI)**.
