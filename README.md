@@ -89,7 +89,7 @@ The workflow operated in three stages:
 I fell into an established trap in AI orchestration: without a deterministic, external ground-truth oracle, asking one probabilistic model to audit another does not converge on mathematical truth. It merely shuffles errors across the codebase.
 
 ### 4. Compounding State & Concurrency Failures
-When I tested the engine on real-world datasets—a 50,000-row Google Ads search terms CSV—the client-side browser runtime began to collapse:
+When I tested the engine on real-world datasets—a 1,000,000-row Google Ads search terms CSV—the client-side browser runtime began to collapse:
 - **Heap Exhaustion:** The parser ran out of memory on large CSV buffers. The model’s patch prevented the crash by chunking arrays, but silently starved the downstream state store of essential rows.
 - **Race Conditions:** Offloading work to Web Workers created unsynchronized message passing. Rows were dropped between worker threads without explicit error logs.
 - **Precision Drift:** Vanilla JavaScript floating-point arithmetic was applied across currency summations, leading to cumulative calculation drift across tens of thousands of rows.
